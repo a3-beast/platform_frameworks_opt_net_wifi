@@ -31,7 +31,9 @@ import android.os.SystemClock;
 import android.os.WorkSource;
 import android.provider.Settings;
 import android.util.Log;
+import android.util.SparseArray;
 
+import com.android.internal.util.MessageUtils;
 import com.android.internal.util.Protocol;
 import com.android.internal.util.State;
 import com.android.internal.util.StateMachine;
@@ -106,6 +108,10 @@ public class WifiController extends StateMachine {
 
     private ScanOnlyModeManager.Listener mScanOnlyModeCallback = new ScanOnlyCallback();
     private ClientModeManager.Listener mClientModeCallback = new ClientModeCallback();
+    // M: For message logging.
+    private static final Class[] sMessageClasses = { WifiController.class };
+    private static final SparseArray<String> sSmToString =
+            MessageUtils.findMessageNames(sMessageClasses);
 
     WifiController(Context context, WifiStateMachine wsm, Looper wifiStateMachineLooper,
                    WifiSettingsStore wss, Looper wifiServiceLooper, FrameworkFacade f,
@@ -251,6 +257,7 @@ public class WifiController extends StateMachine {
     class DefaultState extends State {
         @Override
         public boolean processMessage(Message msg) {
+            Log.d(TAG, getName() + " " + sSmToString.get(msg.what) + msg.toString());
             switch (msg.what) {
                 case CMD_SCAN_ALWAYS_MODE_CHANGED:
                 case CMD_WIFI_TOGGLED:
@@ -308,7 +315,11 @@ public class WifiController extends StateMachine {
                     break;
                 case CMD_EMERGENCY_CALL_STATE_CHANGED:
                 case CMD_EMERGENCY_MODE_CHANGED:
-                    if (msg.arg1 == 1) {
+                    boolean configWiFiDisableInECBM =
+                            mFacade.getConfigWiFiDisableInECBM(mContext);
+                    log("WifiController msg " + msg + " getConfigWiFiDisableInECBM "
+                            + configWiFiDisableInECBM);
+                    if ((msg.arg1 == 1) && configWiFiDisableInECBM) {
                         transitionTo(mEcmState);
                     }
                     break;
@@ -336,6 +347,7 @@ public class WifiController extends StateMachine {
 
         @Override
         public void enter() {
+            log("ApStaDisabledState.enter()");
             mWifiStateMachinePrime.disableWifi();
             // Supplicant can't restart right away, so note the time we switched off
             mDisabledTimestamp = SystemClock.elapsedRealtime();
@@ -345,6 +357,7 @@ public class WifiController extends StateMachine {
         }
         @Override
         public boolean processMessage(Message msg) {
+            Log.d(TAG, getName() + " " + sSmToString.get(msg.what) + msg.toString());
             switch (msg.what) {
                 case CMD_WIFI_TOGGLED:
                     if (mSettingsStore.isWifiToggleEnabled()) {
@@ -433,6 +446,7 @@ public class WifiController extends StateMachine {
 
         @Override
         public boolean processMessage(Message msg) {
+            Log.d(TAG, getName() + " " + sSmToString.get(msg.what) + msg.toString());
             switch (msg.what) {
                 case CMD_WIFI_TOGGLED:
                     if (! mSettingsStore.isWifiToggleEnabled()) {
@@ -489,6 +503,7 @@ public class WifiController extends StateMachine {
 
         @Override
         public void enter() {
+            log("StaDisabledWithScanState.enter()");
             // now trigger the actual mode switch in WifiStateMachinePrime
             mWifiStateMachinePrime.enterScanOnlyMode();
 
@@ -501,6 +516,7 @@ public class WifiController extends StateMachine {
 
         @Override
         public boolean processMessage(Message msg) {
+            Log.d(TAG, getName() + " " + sSmToString.get(msg.what) + msg.toString());
             switch (msg.what) {
                 case CMD_WIFI_TOGGLED:
                     if (mSettingsStore.isWifiToggleEnabled()) {
@@ -594,15 +610,9 @@ public class WifiController extends StateMachine {
         private int mEcmEntryCount;
         @Override
         public void enter() {
-            mWifiStateMachinePrime.stopSoftAPMode();
-            boolean configWiFiDisableInECBM =
-                    mFacade.getConfigWiFiDisableInECBM(mContext);
-            log("WifiController msg getConfigWiFiDisableInECBM "
-                    + configWiFiDisableInECBM);
-            if (configWiFiDisableInECBM) {
-                mWifiStateMachinePrime.shutdownWifi();
-                mWifiStateMachine.clearANQPCache();
-            }
+            log("EcmState.enter()");
+            mWifiStateMachinePrime.shutdownWifi();
+            mWifiStateMachine.clearANQPCache();
             mEcmEntryCount = 1;
         }
 
@@ -613,6 +623,7 @@ public class WifiController extends StateMachine {
          */
         @Override
         public boolean processMessage(Message msg) {
+            Log.d(TAG, getName() + " " + sSmToString.get(msg.what) + msg.toString());
             if (msg.what == CMD_EMERGENCY_CALL_STATE_CHANGED) {
                 if (msg.arg1 == 1) {
                     // nothing to do - just says emergency call started
@@ -678,12 +689,14 @@ public class WifiController extends StateMachine {
     class DeviceActiveState extends State {
         @Override
         public void enter() {
+            log("DeviceActiveState.enter()");
             mWifiStateMachinePrime.enterClientMode();
             mWifiStateMachine.setHighPerfModeEnabled(false);
         }
 
         @Override
         public boolean processMessage(Message msg) {
+            Log.d(TAG, getName() + " " + sSmToString.get(msg.what) + msg.toString());
             if (msg.what == CMD_USER_PRESENT) {
                 // TLS networks can't connect until user unlocks keystore. KeyStore
                 // unlocks when the user punches PIN after the reboot. So use this

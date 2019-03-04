@@ -20,7 +20,6 @@ import android.annotation.NonNull;
 import android.app.ActivityManager;
 import android.app.AppOpsManager;
 import android.content.Context;
-import android.hardware.SystemSensorManager;
 import android.net.NetworkKey;
 import android.net.NetworkScoreManager;
 import android.net.wifi.IWifiScanner;
@@ -61,6 +60,7 @@ import com.android.server.wifi.rtt.RttMetrics;
 import com.android.server.wifi.util.WifiPermissionsUtil;
 import com.android.server.wifi.util.WifiPermissionsWrapper;
 
+import com.mediatek.server.wifi.MtkWifiStateMachinePrime;
 /**
  *  WiFi dependency injector. To be used for accessing various WiFi class instances and as a
  *  handle for mock injection.
@@ -205,8 +205,7 @@ public class WifiInjector {
                 SystemProperties.get(BOOT_DEFAULT_WIFI_COUNTRY_CODE),
                 mContext.getResources()
                         .getBoolean(R.bool.config_wifi_revert_country_code_on_cellular_loss));
-        mWifiApConfigStore = new WifiApConfigStore(
-                mContext, wifiStateMachineLooper, mBackupManagerProxy, mFrameworkFacade);
+        mWifiApConfigStore = new WifiApConfigStore(mContext, mBackupManagerProxy);
 
         // WifiConfigManager/Store objects and their dependencies.
         // New config store
@@ -255,7 +254,7 @@ public class WifiInjector {
                 this, mWifiConfigManager,
                 mWifiPermissionsUtil, mWifiMetrics, mClock);
         mSarManager = new SarManager(mContext, makeTelephonyManager(), wifiStateMachineLooper,
-                mWifiNative, new SystemSensorManager(mContext, wifiStateMachineLooper));
+                mWifiNative);
         if (mUseRealLogger) {
             mWifiDiagnostics = new WifiDiagnostics(
                     mContext, this, mWifiNative, mBuildProperties,
@@ -268,9 +267,9 @@ public class WifiInjector {
                 this, mBackupManagerProxy, mCountryCode, mWifiNative,
                 new WrongPasswordNotifier(mContext, mFrameworkFacade),
                 mSarManager);
-        mWifiStateMachinePrime = new WifiStateMachinePrime(this, mContext, wifiStateMachineLooper,
-                mWifiNative, new DefaultModeManager(mContext, wifiStateMachineLooper),
-                mBatteryStats);
+        mWifiStateMachinePrime = new MtkWifiStateMachinePrime(this, mContext,
+                wifiStateMachineLooper, mWifiNative, new DefaultModeManager(mContext,
+                wifiStateMachineLooper), mBatteryStats);
         mOpenNetworkNotifier = new OpenNetworkNotifier(mContext,
                 mWifiStateMachineHandlerThread.getLooper(), mFrameworkFacade, mClock, mWifiMetrics,
                 mWifiConfigManager, mWifiConfigStore, mWifiStateMachine,
@@ -326,7 +325,6 @@ public class WifiInjector {
         mHalDeviceManager.enableVerboseLogging(verbose);
         mScanRequestProxy.enableVerboseLogging(verbose);
         mWakeupController.enableVerboseLogging(verbose);
-        mCarrierNetworkConfig.enableVerboseLogging(verbose);
         LogcatLog.enableVerboseLogging(verbose);
     }
 
@@ -465,9 +463,11 @@ public class WifiInjector {
      */
     public SoftApManager makeSoftApManager(@NonNull WifiManager.SoftApCallback callback,
                                            @NonNull SoftApModeConfiguration config) {
-        return new SoftApManager(mContext, mWifiStateMachineHandlerThread.getLooper(),
+        // M: Wi-Fi Hotspot Manager
+        return new com.mediatek.server.wifi.MtkSoftApManager(
+                mContext, mWifiStateMachineHandlerThread.getLooper(),
                 mFrameworkFacade, mWifiNative, mCountryCode.getCountryCode(), callback,
-                mWifiApConfigStore, config, mWifiMetrics, mSarManager);
+                mWifiApConfigStore, config, mWifiMetrics);
     }
 
     /**
@@ -479,8 +479,7 @@ public class WifiInjector {
     public ScanOnlyModeManager makeScanOnlyModeManager(
             @NonNull ScanOnlyModeManager.Listener listener) {
         return new ScanOnlyModeManager(mContext, mWifiStateMachineHandlerThread.getLooper(),
-                mWifiNative, listener, mWifiMetrics, mScanRequestProxy, mWakeupController,
-                mSarManager);
+                mWifiNative, listener, mWifiMetrics, mScanRequestProxy, mWakeupController);
     }
 
     /**

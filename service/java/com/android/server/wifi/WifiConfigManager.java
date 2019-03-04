@@ -826,6 +826,11 @@ public class WifiConfigManager {
                 && !externalConfig.allowedKeyManagement.isEmpty()) {
             internalConfig.allowedKeyManagement =
                     (BitSet) externalConfig.allowedKeyManagement.clone();
+            ///M: [WAPI] Make sure WAPI protocol is set
+            if (com.mediatek.server.wifi.MtkWapi.isConfigForWapiNetwork(internalConfig)) {
+                internalConfig.allowedProtocols.clear();
+                internalConfig.allowedProtocols.set(WifiConfiguration.Protocol.WAPI);
+            }
         }
         if (externalConfig.allowedPairwiseCiphers != null
                 && !externalConfig.allowedPairwiseCiphers.isEmpty()) {
@@ -867,6 +872,22 @@ public class WifiConfigManager {
         // Copy over any metered information.
         internalConfig.meteredHint = externalConfig.meteredHint;
         internalConfig.meteredOverride = externalConfig.meteredOverride;
+
+        ///M: [WAPI] @{
+        internalConfig.wapiCertSelMode = externalConfig.wapiCertSelMode;
+        internalConfig.wapiCertSel = externalConfig.wapiCertSel;
+        internalConfig.wapiPskType = externalConfig.wapiPskType;
+        if (externalConfig.wapiPsk != null) {
+            if (internalConfig.wapiPskType == 0) { //WAPI Ascii needs to add double quotes
+                internalConfig.wapiPsk = "\"" + externalConfig.wapiPsk + "\"";
+                ///Set config.wapiPsk to config.preSharedKey and use preSharedKey only
+                internalConfig.preSharedKey = "\"" + externalConfig.wapiPsk + "\"";
+            } else { //WAPI Hex
+                internalConfig.wapiPsk = externalConfig.wapiPsk;
+                internalConfig.preSharedKey = externalConfig.wapiPsk;
+            }
+        }
+        /// }@
     }
 
     /**
@@ -2470,23 +2491,13 @@ public class WifiConfigManager {
                     currentIdentity = TelephonyUtil.getSimIdentity(mTelephonyManager,
                         new TelephonyUtil(), config);
                 }
-                if (mVerboseLoggingEnabled) {
-                    Log.d(TAG, "New identity for config " + config + ": " + currentIdentity);
-                }
-
                 // Update the loaded config
                 if (currentIdentity == null) {
-                    Log.d(TAG, "Identity is null for config:" + config);
-                    break;
+                    Log.d(TAG, "Identity is null");
+                    return;
                 }
-
-                if (config.enterpriseConfig.getEapMethod() == WifiEnterpriseConfig.Eap.PEAP) {
-                    config.enterpriseConfig.setIdentity(currentIdentity.first);
-                    // do not reset anonymous identity since it may be dependent on user-entry
-                    // (i.e. cannot re-request on every reboot/SIM re-entry)
-                } else {
-                    // reset identity as well: supplicant will ask us for it
-                    config.enterpriseConfig.setIdentity("");
+                config.enterpriseConfig.setIdentity(currentIdentity.first);
+                if (config.enterpriseConfig.getEapMethod() != WifiEnterpriseConfig.Eap.PEAP) {
                     config.enterpriseConfig.setAnonymousIdentity("");
                 }
             }
@@ -2935,6 +2946,7 @@ public class WifiConfigManager {
         if (mLocalLog != null) {
             mLocalLog.log(s);
         }
+        Log.d(TAG, s);
     }
 
     /**

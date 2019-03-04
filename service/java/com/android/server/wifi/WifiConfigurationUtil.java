@@ -37,6 +37,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 
+import com.mediatek.server.wifi.MtkEapSimUtility;
 /**
  * WifiConfiguration utility for any {@link android.net.wifi.WifiConfiguration} related operations.
  * Currently contains:
@@ -131,6 +132,7 @@ public class WifiConfigurationUtil {
      */
     public static boolean isConfigForOpenNetwork(WifiConfiguration config) {
         return !(isConfigForWepNetwork(config) || isConfigForPskNetwork(config)
+                || com.mediatek.server.wifi.MtkWapi.isConfigForWapiNetwork(config)
                 || isConfigForEapNetwork(config));
     }
 
@@ -263,6 +265,15 @@ public class WifiConfigurationUtil {
                 newConfig.enterpriseConfig)) {
             return true;
         }
+        if (MtkEapSimUtility.getIntSimSlot(existingConfig)
+                != MtkEapSimUtility.getIntSimSlot(newConfig)) {
+            return true;
+        }
+        /// M:[WAPI]
+        if (com.mediatek.server.wifi.MtkWapi.hasWapiConfigChanged(existingConfig,
+                newConfig)) {
+            return true;
+        }
         return false;
     }
 
@@ -283,8 +294,11 @@ public class WifiConfigurationUtil {
             return false;
         }
         if (ssid.startsWith("\"")) {
-            // UTF-8 SSID string
+            // UTF-8 SSID string or gbk SSID string
             byte[] ssidBytes = ssid.getBytes(StandardCharsets.UTF_8);
+            if (com.mediatek.server.wifi.MtkGbkSsid.isGbkSsid(ssid)) {
+                ssidBytes = com.mediatek.server.wifi.MtkGbkSsid.stringToByteArray(ssid);
+            }
             if (ssidBytes.length < SSID_UTF_8_MIN_LEN) {
                 Log.e(TAG, "validateSsid failed: utf-8 ssid string size too small: "
                         + ssidBytes.length);

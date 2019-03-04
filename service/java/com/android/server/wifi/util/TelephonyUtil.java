@@ -27,6 +27,8 @@ import android.util.Pair;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.server.wifi.WifiNative;
 
+import com.mediatek.server.wifi.MtkEapSimUtility;
+
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
@@ -368,11 +370,13 @@ public class TelephonyUtil {
             String base64Challenge = Base64.encodeToString(rand, Base64.NO_WRAP);
 
             // Try USIM first for authentication.
-            String tmResponse = tm.getIccAuthentication(TelephonyManager.APPTYPE_USIM,
+            int appType = tm.APPTYPE_USIM;
+            String tmResponse = MtkEapSimUtility.getIccAuthentication(TelephonyManager.APPTYPE_USIM,
                     TelephonyManager.AUTHTYPE_EAP_SIM, base64Challenge);
             if (tmResponse == null) {
                 // Then, in case of failure, issue may be due to sim type, retry as a simple sim
-                tmResponse = tm.getIccAuthentication(TelephonyManager.APPTYPE_SIM,
+               appType = tm.APPTYPE_SIM;
+               tmResponse = MtkEapSimUtility.getIccAuthentication(TelephonyManager.APPTYPE_SIM,
                         TelephonyManager.AUTHTYPE_EAP_SIM, base64Challenge);
             }
             Log.v(TAG, "Raw Response - " + tmResponse);
@@ -384,6 +388,21 @@ public class TelephonyUtil {
 
             byte[] result = Base64.decode(tmResponse, Base64.DEFAULT);
             Log.v(TAG, "Hex Response -" + makeHex(result));
+            ///M: USIM and SIM have different response format @{
+            // Google only supports USIM response by default.
+            Log.v(TAG, "appType is  " + (appType == tm.APPTYPE_USIM ? "USIM" : "SIM"));
+            if (appType == tm.APPTYPE_SIM) { //M: Support SIM response
+                if (result.length < 12) {
+                    Log.e(TAG, "malfomed response - " + tmResponse);
+                    return null;
+                }
+                String sres = makeHex(result, 0, 4);
+                String kc = makeHex(result, 4, 8);
+                sb.append(":" + kc + ":" + sres);
+                Log.v(TAG, "kc:" + kc + " sres:" + sres);
+                continue;
+            }
+            /// }@
             int sresLen = result[0];
             if (sresLen >= result.length) {
                 Log.e(TAG, "malfomed response - " + tmResponse);
@@ -463,7 +482,7 @@ public class TelephonyUtil {
         if (rand != null && authn != null) {
             String base64Challenge = Base64.encodeToString(concatHex(rand, authn), Base64.NO_WRAP);
             if (tm != null) {
-                tmResponse = tm.getIccAuthentication(TelephonyManager.APPTYPE_USIM,
+                tmResponse = MtkEapSimUtility.getIccAuthentication(TelephonyManager.APPTYPE_USIM,
                         TelephonyManager.AUTHTYPE_EAP_AKA, base64Challenge);
                 Log.v(TAG, "Raw Response - " + tmResponse);
             } else {

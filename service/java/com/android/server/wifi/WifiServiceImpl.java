@@ -133,7 +133,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * @hide
  */
-public class WifiServiceImpl extends IWifiManager.Stub {
+public class WifiServiceImpl extends com.mediatek.server.wifi.MtkWifiServiceImpl {
     private static final String TAG = "WifiService";
     private static final boolean VDBG = false;
 
@@ -444,6 +444,9 @@ public class WifiServiceImpl extends IWifiManager.Stub {
     private WifiApConfigStore mWifiApConfigStore;
 
     public WifiServiceImpl(Context context, WifiInjector wifiInjector, AsyncChannel asyncChannel) {
+        /// M: Hotspot manager implementation
+        super(context, wifiInjector, asyncChannel);
+
         mContext = context;
         mWifiInjector = wifiInjector;
         mClock = wifiInjector.getClock();
@@ -471,6 +474,8 @@ public class WifiServiceImpl extends IWifiManager.Stub {
         mWifiBackupRestore = mWifiInjector.getWifiBackupRestore();
         mWifiApConfigStore = mWifiInjector.getWifiApConfigStore();
         mPermissionReviewRequired = Build.PERMISSIONS_REVIEW_REQUIRED
+                || com.mediatek.cta.CtaManagerFactory.getInstance().
+                        makeCtaManager().isCtaSupported()
                 || context.getResources().getBoolean(
                 com.android.internal.R.bool.config_permissionReviewRequired);
         mWifiPermissionsUtil = mWifiInjector.getWifiPermissionsUtil();
@@ -483,6 +488,7 @@ public class WifiServiceImpl extends IWifiManager.Stub {
 
         mWifiInjector.getWifiStateMachinePrime().registerSoftApCallback(new SoftApCallbackImpl());
         mPowerProfile = mWifiInjector.getPowerProfile();
+        com.mediatek.server.wifi.MtkEapSimUtility.init();
     }
 
     /**
@@ -531,7 +537,8 @@ public class WifiServiceImpl extends IWifiManager.Stub {
                 new IntentFilter(Intent.ACTION_AIRPLANE_MODE_CHANGED));
 
         mContext.registerReceiver(
-                new BroadcastReceiver() {
+                new com.mediatek.server.wifi.MtkEapSimUtility.MtkSimBroadcastReceiver(),
+                /*
                     @Override
                     public void onReceive(Context context, Intent intent) {
                         String state = intent.getStringExtra(IccCardConstants.INTENT_KEY_ICC_STATE);
@@ -543,7 +550,7 @@ public class WifiServiceImpl extends IWifiManager.Stub {
                             mWifiStateMachine.resetSimAuthNetworks(true);
                         }
                     }
-                },
+                }*/
                 new IntentFilter(TelephonyIntents.ACTION_SIM_STATE_CHANGED));
 
         mContext.registerReceiver(
@@ -847,7 +854,9 @@ public class WifiServiceImpl extends IWifiManager.Stub {
         }
 
 
-        if (mPermissionReviewRequired) {
+        if (mPermissionReviewRequired
+                && !com.mediatek.cta.CtaManagerFactory.getInstance().makeCtaManager().isSystemApp(
+                    mContext, packageName)) {
             final int wiFiEnabledState = getWifiEnabledState();
             if (enable) {
                 if (wiFiEnabledState == WifiManager.WIFI_STATE_DISABLING
@@ -1580,21 +1589,6 @@ public class WifiServiceImpl extends IWifiManager.Stub {
             Slog.e(TAG, "Invalid WifiConfiguration");
             return false;
         }
-    }
-
-    /**
-     * Method used to inform user of Ap Configuration conversion due to hardware.
-     */
-    @Override
-    public void notifyUserOfApBandConversion(String packageName) {
-        enforceNetworkSettingsPermission();
-
-        if (mVerboseLoggingEnabled) {
-            mLog.info("notifyUserOfApBandConversion uid=% packageName=%")
-                    .c(Binder.getCallingUid()).c(packageName).flush();
-        }
-
-        mWifiApConfigStore.notifyUserOfApBandConversion(packageName);
     }
 
     /**
@@ -2573,11 +2567,6 @@ public class WifiServiceImpl extends IWifiManager.Stub {
                 wifiScoreReport.dump(fd, pw, args);
             }
             pw.println();
-            SarManager sarManager = mWifiInjector.getSarManager();
-            if (sarManager != null) {
-                sarManager.dump(fd, pw, args);
-            }
-            pw.println();
         }
     }
 
@@ -2653,6 +2642,11 @@ public class WifiServiceImpl extends IWifiManager.Stub {
         mFacade.setIntegerSetting(
                 mContext, Settings.Global.WIFI_VERBOSE_LOGGING_ENABLED, verbose);
         enableVerboseLoggingInternal(verbose);
+        /// M: Adjust log much property based on the status of verbose logging
+        if (mWifiInjector.getPropertyService().get("ro.vendor.mtklog_internal", "").equals("1")) {
+            mWifiInjector.getPropertyService().set(
+                    "persist.vendor.logmuch", (verbose > 0 ? "false" : "true"));
+        }
     }
 
     void enableVerboseLoggingInternal(int verbose) {
@@ -2661,6 +2655,7 @@ public class WifiServiceImpl extends IWifiManager.Stub {
         mWifiLockManager.enableVerboseLogging(verbose);
         mWifiMulticastLockManager.enableVerboseLogging(verbose);
         mWifiInjector.enableVerboseLogging(verbose);
+        com.mediatek.server.wifi.MtkEapSimUtility.enableVerboseLogging(verbose);
     }
 
     @Override

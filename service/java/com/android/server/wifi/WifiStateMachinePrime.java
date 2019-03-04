@@ -125,7 +125,7 @@ public class WifiStateMachinePrime {
         mClientModeCallback = callback;
     }
 
-    WifiStateMachinePrime(WifiInjector wifiInjector,
+    protected WifiStateMachinePrime(WifiInjector wifiInjector,
                           Context context,
                           Looper looper,
                           WifiNative wifiNative,
@@ -455,6 +455,7 @@ public class WifiStateMachinePrime {
                     } else if (state == WifiManager.WIFI_STATE_ENABLED) {
                         // scan mode is ready to go
                         Log.d(TAG, "scan mode active");
+                        com.mediatek.server.wifi.MtkScanModeNotifier.setScanMode(true);
                     } else {
                         Log.d(TAG, "unexpected state update: " + state);
                     }
@@ -478,6 +479,7 @@ public class WifiStateMachinePrime {
             public void exit() {
                 super.exit();
                 mListener = null;
+                com.mediatek.server.wifi.MtkScanModeNotifier.setScanMode(false);
             }
 
             @Override

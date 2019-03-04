@@ -48,6 +48,7 @@ import com.android.server.wifi.wificond.SingleScanSettings;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -522,6 +523,7 @@ public class WificondControl implements IBinder.DeathRecipient {
             }
             for (NativeScanResult result : nativeResults) {
                 WifiSsid wifiSsid = WifiSsid.createFromByteArray(result.ssid);
+                com.mediatek.server.wifi.MtkGbkSsid.checkAndSetGbk(wifiSsid);
                 String bssid;
                 try {
                     bssid = NativeUtil.macAddressFromByteArray(result.bssid);
@@ -539,6 +541,9 @@ public class WificondControl implements IBinder.DeathRecipient {
                         new InformationElementUtil.Capabilities();
                 capabilities.from(ies, result.capability);
                 String flags = capabilities.generateCapabilitiesString();
+                ///M: [WAPI] Check if we need to parse and add WAPI to capabilities flag
+                flags = com.mediatek.server.wifi.MtkWapi.generateCapabilitiesString(ies,
+                        result.capability, flags);
                 NetworkDetail networkDetail;
                 try {
                     networkDetail = new NetworkDetail(bssid, ies, null, result.frequency);
@@ -611,7 +616,7 @@ public class WificondControl implements IBinder.DeathRecipient {
     public boolean scan(@NonNull String ifaceName,
                         int scanType,
                         Set<Integer> freqs,
-                        Set<String> hiddenNetworkSSIDs) {
+                        List<String> hiddenNetworkSSIDs) {
         IWifiScannerImpl scannerImpl = getScannerImpl(ifaceName);
         if (scannerImpl == null) {
             Log.e(TAG, "No valid wificond scanner interface handler");
@@ -643,11 +648,19 @@ public class WificondControl implements IBinder.DeathRecipient {
                     Log.e(TAG, "Illegal argument " + ssid, e);
                     continue;
                 }
+                //M: Support hidden gbk
                 settings.hiddenNetworks.add(network);
+                HiddenNetwork networkExtraforGbk =
+                        com.mediatek.server.wifi.MtkGbkSsid.needAddExtraGbkSsid(ssid);
+                if (networkExtraforGbk != null) {
+                    settings.hiddenNetworks.add(networkExtraforGbk);
+                    Log.i(TAG, "scan with extra gbk ssid for hidden network");
+                }
             }
         }
 
         try {
+            com.mediatek.server.wifi.MtkWifiApmDelegate.getInstance().notifyStartScanTime();
             return scannerImpl.scan(settings);
         } catch (RemoteException e1) {
             Log.e(TAG, "Failed to request scan due to remote exception");
@@ -867,5 +880,6 @@ public class WificondControl implements IBinder.DeathRecipient {
         mScanEventHandlers.clear();
         mApInterfaces.clear();
         mApInterfaceListeners.clear();
+        com.mediatek.server.wifi.MtkGbkSsid.clear();
     }
 }

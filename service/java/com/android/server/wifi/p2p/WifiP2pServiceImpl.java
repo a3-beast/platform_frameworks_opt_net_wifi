@@ -107,7 +107,7 @@ import java.util.Map;
  */
 public class WifiP2pServiceImpl extends IWifiP2pManager.Stub {
     private static final String TAG = "WifiP2pService";
-    private static final boolean DBG = false;
+    private static final boolean DBG = true;
     private static final String NETWORKTYPE = "WIFI_P2P";
 
     private Context mContext;

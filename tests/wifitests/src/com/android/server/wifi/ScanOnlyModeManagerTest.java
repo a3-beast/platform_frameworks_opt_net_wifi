@@ -71,7 +71,6 @@ public class ScanOnlyModeManagerTest {
     @Mock WifiMonitor mWifiMonitor;
     @Mock ScanRequestProxy mScanRequestProxy;
     @Mock WakeupController mWakeupController;
-    @Mock SarManager mSarManager;
 
     final ArgumentCaptor<WifiNative.InterfaceCallback> mInterfaceCallbackCaptor =
             ArgumentCaptor.forClass(WifiNative.InterfaceCallback.class);
@@ -87,7 +86,7 @@ public class ScanOnlyModeManagerTest {
 
     private ScanOnlyModeManager createScanOnlyModeManager() {
         return new ScanOnlyModeManager(mContext, mLooper.getLooper(), mWifiNative, mListener,
-                mWifiMetrics, mScanRequestProxy, mWakeupController, mSarManager);
+                mWifiMetrics, mScanRequestProxy, mWakeupController);
     }
 
     private void startScanOnlyModeAndVerifyEnabled() throws Exception {
@@ -113,7 +112,6 @@ public class ScanOnlyModeManagerTest {
         checkWifiStateChangeListenerUpdate(WIFI_STATE_ENABLED);
         verify(mScanRequestProxy, atLeastOnce()).clearScanResults();
         verify(mScanRequestProxy, atLeastOnce()).enableScanningForHiddenNetworks(false);
-        verify(mSarManager).setScanOnlyWifiState(eq(WIFI_STATE_ENABLED));
     }
 
     private void checkWifiScanStateChangedBroadcast(Intent intent, int expectedCurrentState) {
@@ -172,7 +170,6 @@ public class ScanOnlyModeManagerTest {
         mLooper.dispatchAll();
         verify(mWifiNative).teardownInterface(TEST_INTERFACE_NAME);
         verify(mContext, never()).sendStickyBroadcastAsUser(any(), eq(UserHandle.ALL));
-        verify(mSarManager).setScanOnlyWifiState(eq(WIFI_STATE_DISABLED));
         verifyNoMoreInteractions(mListener);
     }
 

@@ -41,6 +41,7 @@ import com.android.internal.R;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.server.wifi.hotspot2.PasspointNetworkEvaluator;
 import com.android.server.wifi.util.ScanResultUtil;
+import com.mediatek.server.wifi.MtkWifiServiceAdapter;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
@@ -148,7 +149,7 @@ public class WifiConnectivityManager {
     private final LocalLog mLocalLog;
     private final LinkedList<Long> mConnectionAttemptTimeStamps;
 
-    private boolean mDbg = false;
+    boolean mDbg = false;
     private boolean mWifiEnabled = false;
     private boolean mWifiConnectivityManagerEnabled = true;
     private boolean mScreenOn = false;
@@ -200,6 +201,7 @@ public class WifiConnectivityManager {
     // be retrieved in bugreport.
     private void localLog(String log) {
         mLocalLog.log(log);
+        Log.d(TAG, log);
     }
 
     // A periodic/PNO scan will be rescheduled up to MAX_SCAN_RESTART_ALLOWED times
@@ -255,6 +257,7 @@ public class WifiConnectivityManager {
     private boolean handleScanResults(List<ScanDetail> scanDetails, String listenerName) {
         // Check if any blacklisted BSSIDs can be freed.
         refreshBssidBlacklist();
+        com.mediatek.server.wifi.MtkWfcUtility.updateSavedNetworkChannel(scanDetails);
 
         if (mStateMachine.isSupplicantTransientState()) {
             localLog(listenerName
@@ -285,6 +288,9 @@ public class WifiConnectivityManager {
                             mNetworkSelector.getFilteredScanDetailsForCarrierUnsavedNetworks(
                                     mCarrierNetworkConfig));
                 }
+                MtkWifiServiceAdapter.handleScanResults(
+                        scanDetails,
+                        mNetworkSelector.getFilteredScanDetailsForOpenUnsavedNetworks());
             }
             return false;
         }
@@ -368,6 +374,8 @@ public class WifiConnectivityManager {
 
             if (mDbg) {
                 localLog("AllSingleScanListener onFullResult: " + fullScanResult.SSID
+                        + " BSSID " + fullScanResult.BSSID + " level " + fullScanResult.level
+                        + " frequency " + fullScanResult.frequency
                         + " capabilities " + fullScanResult.capabilities);
             }
 
@@ -1004,6 +1012,7 @@ public class WifiConnectivityManager {
 
     // Set up periodic scan timer
     private void schedulePeriodicScanTimer(int intervalMs) {
+        localLog("schedulePeriodicScanTimer, intervalMs: " + intervalMs);
         mAlarmManager.set(AlarmManager.ELAPSED_REALTIME_WAKEUP,
                             mClock.getElapsedSinceBootMillis() + intervalMs,
                             PERIODIC_SCAN_TIMER_TAG,
@@ -1435,6 +1444,5 @@ public class WifiConnectivityManager {
         pw.println("WifiConnectivityManager - Log End ----");
         mOpenNetworkNotifier.dump(fd, pw, args);
         mCarrierNetworkNotifier.dump(fd, pw, args);
-        mCarrierNetworkConfig.dump(fd, pw, args);
     }
 }

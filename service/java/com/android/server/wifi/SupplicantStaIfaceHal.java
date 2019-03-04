@@ -46,6 +46,7 @@ import android.net.wifi.SupplicantState;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiManager;
 import android.net.wifi.WifiSsid;
+import android.os.Build;
 import android.os.HidlSupport.Mutable;
 import android.os.HwRemoteBinder;
 import android.os.RemoteException;
@@ -286,6 +287,7 @@ public class SupplicantStaIfaceHal {
             Log.e(TAG, "setupIface got null iface");
             return false;
         }
+        com.mediatek.server.wifi.MtkWapi.setupMtkIface(ifaceName);
         SupplicantStaIfaceHalCallback callback = new SupplicantStaIfaceHalCallback(ifaceName);
 
         if (isV1_1()) {
@@ -2073,10 +2075,17 @@ public class SupplicantStaIfaceHal {
      */
     public boolean setLogLevel(boolean turnOnVerbose) {
         synchronized (mLock) {
-            int logLevel = turnOnVerbose
-                    ? ISupplicant.DebugLevel.DEBUG
-                    : ISupplicant.DebugLevel.INFO;
-            return setDebugParams(logLevel, false, false);
+            if (!"user".equals(Build.TYPE)) {
+                int logLevel = turnOnVerbose
+                        ? ISupplicant.DebugLevel.EXCESSIVE
+                        : ISupplicant.DebugLevel.INFO;
+                return setDebugParams(logLevel, true, true);
+            } else {
+                int logLevel = turnOnVerbose
+                        ? ISupplicant.DebugLevel.DEBUG
+                        : ISupplicant.DebugLevel.INFO;
+                return setDebugParams(logLevel, false, false);
+            }
         }
     }
 
@@ -2136,6 +2145,10 @@ public class SupplicantStaIfaceHal {
             if (mISupplicant == null) {
                 Log.e(TAG, "Can't call " + methodStr + ", ISupplicant is null");
                 return false;
+            } else {
+                if (mVerboseLoggingEnabled) {
+                    Log.d(TAG, "Do ISupplicant." + methodStr);
+                }
             }
             return true;
         }
@@ -2151,6 +2164,10 @@ public class SupplicantStaIfaceHal {
             if (iface == null) {
                 Log.e(TAG, "Can't call " + methodStr + ", ISupplicantStaIface is null");
                 return null;
+            } else {
+                if (mVerboseLoggingEnabled) {
+                    Log.d(TAG, "Do ISupplicantStaIface." + methodStr);
+                }
             }
             return iface;
         }
@@ -2350,6 +2367,7 @@ public class SupplicantStaIfaceHal {
                 SupplicantState newSupplicantState = supplicantHidlStateToFrameworkState(newState);
                 WifiSsid wifiSsid =
                         WifiSsid.createFromByteArray(NativeUtil.byteArrayFromArrayList(ssid));
+                com.mediatek.server.wifi.MtkGbkSsid.checkAndSetGbk(wifiSsid);
                 String bssidStr = NativeUtil.macAddressFromByteArray(bssid);
                 mStateIsFourway = (newState == ISupplicantStaIfaceCallback.State.FOURWAY_HANDSHAKE);
                 if (newSupplicantState == SupplicantState.COMPLETED) {

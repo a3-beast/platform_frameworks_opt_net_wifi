@@ -35,7 +35,8 @@ LOCAL_SHARED_LIBRARIES += \
 
 LOCAL_SRC_FILES := \
 	jni/com_android_server_wifi_WifiNative.cpp \
-	jni/jni_helper.cpp
+	jni/jni_helper.cpp \
+        jni/com_mediatek_server_wifi_MtkScanModeNotifier.cpp
 
 LOCAL_MODULE := libwifi-service
 
@@ -61,14 +62,18 @@ LOCAL_JAVA_LIBRARIES := \
 	conscrypt \
 	error_prone_annotations \
 	jsr305 \
-	services
+	services \
+	mediatek-framework
 LOCAL_STATIC_JAVA_LIBRARIES := \
 	android.hardware.wifi-V1.0-java \
 	android.hardware.wifi-V1.1-java \
 	android.hardware.wifi-V1.2-java \
 	android.hardware.wifi.hostapd-V1.0-java \
 	android.hardware.wifi.supplicant-V1.0-java \
-	android.hardware.wifi.supplicant-V1.1-java
+	android.hardware.wifi.supplicant-V1.1-java \
+	vendor.mediatek.hardware.wifi.hostapd-V2.0-java \
+        vendor.mediatek.hardware.wifi.supplicant-V2.0-java
+
 LOCAL_REQUIRED_MODULES := \
 	services \
 	libwifi-service \

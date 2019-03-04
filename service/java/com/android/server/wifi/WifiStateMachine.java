@@ -108,6 +108,11 @@ import com.android.server.wifi.util.TelephonyUtil.SimAuthResponseData;
 import com.android.server.wifi.util.WifiPermissionsUtil;
 import com.android.server.wifi.util.WifiPermissionsWrapper;
 
+import com.mediatek.server.wifi.MtkEapSimUtility;
+//M: IpReachabilityLost Enhancement
+import com.mediatek.server.wifi.MtkIpReachabilityLostMonitor;
+import com.mediatek.server.wifi.MtkWifiServiceAdapter;
+
 import java.io.BufferedReader;
 import java.io.FileDescriptor;
 import java.io.FileNotFoundException;
@@ -762,6 +767,7 @@ public class WifiStateMachine extends StateMachine {
     private WifiStateTracker mWifiStateTracker;
     private final BackupManagerProxy mBackupManagerProxy;
     private final WrongPasswordNotifier mWrongPasswordNotifier;
+    private MtkIpReachabilityLostMonitor mIpReachabilityLostEnhancement;
 
     public WifiStateMachine(Context context, FrameworkFacade facade, Looper looper,
                             UserManager userManager, WifiInjector wifiInjector,
@@ -910,6 +916,9 @@ public class WifiStateMachine extends StateMachine {
         // Learn the initial state of whether the screen is on.
         // We update this field when we receive broadcasts from the system.
         handleScreenStateChanged(powerManager.isInteractive());
+        mIpReachabilityLostEnhancement
+            = new MtkIpReachabilityLostMonitor(this, mWifiMonitor, looper);
+        com.mediatek.server.wifi.MtkWfcUtility.init(context);
     }
 
     private void registerForWifiMonitorEvents()  {
@@ -1089,6 +1098,9 @@ public class WifiStateMachine extends StateMachine {
         mWifiConfigManager.enableVerboseLogging(verbose);
         mSupplicantStateTracker.enableVerboseLogging(verbose);
         mPasspointManager.enableVerboseLogging(verbose);
+        if (mWifiConnectivityManager != null) {
+            mWifiConnectivityManager.mDbg = (verbose > 0) ? true : false;
+        }
     }
 
     private static final String SYSTEM_PROPERTY_LOG_CONTROL_WIFIHAL = "log.tag.WifiHAL";
@@ -2490,6 +2502,8 @@ public class WifiStateMachine extends StateMachine {
             updateCapabilities();
         }
 
+        MtkWifiServiceAdapter.updateRSSI(newRssi, mWifiInfo.getIpAddress(), mLastNetworkId);
+
         if (newLinkSpeed != null) {
             mWifiInfo.setLinkSpeed(newLinkSpeed);
         }
@@ -2979,6 +2993,7 @@ public class WifiStateMachine extends StateMachine {
          * disconnect thru supplicant, we will let autojoin retry connecting to the network
          */
         mWifiNative.disconnect(mInterfaceName);
+        com.mediatek.server.wifi.MtkWifiApmDelegate.getInstance().broadcastProvisionFail();
     }
 
     // TODO: De-duplicated this and handleIpConfigurationLost().
@@ -3651,10 +3666,15 @@ public class WifiStateMachine extends StateMachine {
                 mWifiConnectivityManager.handleScreenStateChanged(mScreenOn);
             }
         }
+        if (mVerboseLoggingEnabled) {
+            mWifiConnectivityManager.mDbg = true;
+        }
 
         mIpClient = mFacade.makeIpClient(mContext, mInterfaceName, new IpClientCallback());
         mIpClient.setMulticastFilter(true);
         registerForWifiMonitorEvents();
+        mIpReachabilityLostEnhancement.registerForWifiMonitorEvents();
+        com.mediatek.server.wifi.MtkWifiApmDelegate.getInstance().init();
         mWifiInjector.getWifiLastResortWatchdog().clearAllFailureCounts();
         setSupplicantLogLevel();
 
@@ -3826,7 +3846,6 @@ public class WifiStateMachine extends StateMachine {
             mWifiConnectivityManager.setWifiEnabled(true);
             // Inform metrics that Wifi is Enabled (but not yet connected)
             mWifiMetrics.setWifiState(WifiMetricsProto.WifiLog.WIFI_DISCONNECTED);
-            mWifiMetrics.logStaEvent(StaEvent.TYPE_WIFI_ENABLED);
             // Inform p2p service that wifi is up and ready when applicable
             p2pSendMessage(WifiStateMachine.CMD_ENABLE_P2P);
             // Inform sar manager that wifi is Enabled
@@ -3844,7 +3863,6 @@ public class WifiStateMachine extends StateMachine {
             mWifiConnectivityManager.setWifiEnabled(false);
             // Inform metrics that Wifi is being disabled (Toggled, airplane enabled, etc)
             mWifiMetrics.setWifiState(WifiMetricsProto.WifiLog.WIFI_DISABLED);
-            mWifiMetrics.logStaEvent(StaEvent.TYPE_WIFI_DISABLED);
             // Inform sar manager that wifi is being disabled
             mSarManager.setClientWifiState(WifiManager.WIFI_STATE_DISABLED);
 
@@ -3863,15 +3881,21 @@ public class WifiStateMachine extends StateMachine {
         public boolean processMessage(Message message) {
             WifiConfiguration config;
             int netId;
-            boolean ok;
+            /// M: for OP extension
+            boolean ok = false;
             boolean didDisconnect;
             String bssid;
             String ssid;
-            NetworkUpdateResult result;
+            /// M: for OP extensionn
+            NetworkUpdateResult result = null;
             Set<Integer> removedNetworkIds;
             int reasonCode;
             boolean timedOut;
             logStateAndMessage(message, this);
+
+            if (MtkWifiServiceAdapter.preProcessMessage(this, message)) {
+                return HANDLED;
+            }
 
             switch (message.what) {
                 case WifiMonitor.ASSOCIATION_REJECTION_EVENT:
@@ -4039,10 +4063,13 @@ public class WifiStateMachine extends StateMachine {
                             && TelephonyUtil.isSimConfig(targetWificonfiguration)) {
                         // Pair<identity, encrypted identity>
                         Pair<String, String> identityPair =
-                                TelephonyUtil.getSimIdentity(getTelephonyManager(),
+                                MtkEapSimUtility.getSimIdentity(getTelephonyManager(),
                                         new TelephonyUtil(), targetWificonfiguration);
-                        Log.i(TAG, "SUP_REQUEST_IDENTITY: identityPair=" + identityPair);
                         if (identityPair != null && identityPair.first != null) {
+                            ///M: If slotId is unspecified, set default sim from TelepohonyManager
+                            MtkEapSimUtility.setDefaultSimToUnspecifiedSimSlot();
+                            log("Send identity: (" + identityPair.first + ", "
+                                    + identityPair.second + ") to supplicant");
                             mWifiNative.simIdentityResponse(mInterfaceName, netId,
                                     identityPair.first, identityPair.second);
                             identitySent = true;
@@ -4230,6 +4257,7 @@ public class WifiStateMachine extends StateMachine {
                     replyToMessage(message, WifiManager.CONNECT_NETWORK_SUCCEEDED);
                     break;
                 case WifiManager.SAVE_NETWORK:
+                    WifiConfiguration current = getCurrentWifiConfiguration();
                     result = saveNetworkConfigAndSendReply(message);
                     netId = result.getNetworkId();
                     if (result.isSuccess() && mWifiInfo.getNetworkId() == netId) {
@@ -4237,6 +4265,10 @@ public class WifiStateMachine extends StateMachine {
                             config = (WifiConfiguration) message.obj;
                             // The network credentials changed and we're connected to this network,
                             // start a new connection with the updated credentials.
+                            if (MtkEapSimUtility.isSimConfigSameAsCurrent(config, current)) {
+                                logi("SAVE_NETWORK simSlot are the same as current config, break");
+                                break;
+                            }
                             logi("SAVE_NETWORK credential changed for config=" + config.configKey()
                                     + ", Reconnecting.");
                             startConnectToNetwork(netId, message.sendingUid, SUPPLICANT_BSSID_ANY);
@@ -4402,8 +4434,10 @@ public class WifiStateMachine extends StateMachine {
                     replyToMessage(message, message.what, stats);
                     break;
                 case CMD_RESET_SIM_NETWORKS:
-                    log("resetting EAP-SIM/AKA/AKA' networks since SIM was changed");
-                    mWifiConfigManager.resetSimNetworks(message.arg1 == 1);
+                    if (mVerboseLoggingEnabled) {
+                        log("resetting EAP-SIM/AKA/AKA' networks since SIM was changed");
+                    }
+                    MtkEapSimUtility.resetSimNetworks(message.arg1 == 1, message.arg2);
                     break;
                 case CMD_BLUETOOTH_ADAPTER_STATE_CHANGE:
                     mBluetoothConnectionActive = (message.arg1
@@ -4466,6 +4500,8 @@ public class WifiStateMachine extends StateMachine {
                 default:
                     return NOT_HANDLED;
             }
+
+            MtkWifiServiceAdapter.postProcessMessage(this, message, ok, result);
             return HANDLED;
         }
     }
@@ -4860,9 +4896,7 @@ public class WifiStateMachine extends StateMachine {
                     break;
                 case CMD_RSSI_POLL:
                     if (message.arg1 == mRssiPollToken) {
-                        WifiLinkLayerStats stats = getWifiLinkLayerStats();
-                        mWifiMetrics.incrementWifiLinkLayerUsageStats(stats);
-
+                        getWifiLinkLayerStats();
                         // Get Info and continue polling
                         fetchRssiLinkSpeedAndFrequencyNative();
                         // Send the update score to network agent.
@@ -4945,6 +4979,11 @@ public class WifiStateMachine extends StateMachine {
                         WifiConfiguration config =
                                 mWifiConfigManager.getConfiguredNetwork(mLastNetworkId);
                         if (TelephonyUtil.isSimConfig(config)) {
+                            ///M: EAP-SIM for extending to dual sim
+                            int removedSimSlot = message.arg2;
+                            int configSimSlot = MtkEapSimUtility.getIntSimSlot(config);
+                            if (configSimSlot != removedSimSlot) return NOT_HANDLED;
+                            log("Disconnect since sim" + removedSimSlot + " is removed");
                             mWifiMetrics.logStaEvent(StaEvent.TYPE_FRAMEWORK_DISCONNECT,
                                     StaEvent.DISCONNECT_RESET_SIM_NETWORKS);
                             mWifiNative.disconnect(mInterfaceName);
@@ -5638,6 +5677,11 @@ public class WifiStateMachine extends StateMachine {
         if (targetWificonfiguration == null
                 || targetWificonfiguration.networkId
                 == requestData.networkId) {
+            if (targetWificonfiguration == null) {
+                targetWificonfiguration =
+                    mWifiConfigManager.getConfiguredNetwork(requestData.networkId);
+                logd("Assign targetWificonfiguration in roaming case since it will be null");
+            }
             logd("id matches targetWifiConfiguration");
         } else {
             logd("id does not match targetWifiConfiguration");
@@ -5660,6 +5704,11 @@ public class WifiStateMachine extends StateMachine {
         if (targetWificonfiguration == null
                 || targetWificonfiguration.networkId
                 == requestData.networkId) {
+            if (targetWificonfiguration == null) {
+                targetWificonfiguration =
+                    mWifiConfigManager.getConfiguredNetwork(requestData.networkId);
+                logd("Assign targetWificonfiguration in roaming case since it will be null");
+            }
             logd("id matches targetWifiConfiguration");
         } else {
             logd("id does not match targetWifiConfiguration");
@@ -5897,6 +5946,7 @@ public class WifiStateMachine extends StateMachine {
      */
     public boolean syncInitialize(AsyncChannel channel) {
         Message resultMsg = channel.sendMessageSynchronously(CMD_INITIALIZE);
+        MtkWifiServiceAdapter.initialize(mContext);
         boolean result = (resultMsg.arg1 != FAILURE);
         resultMsg.recycle();
         return result;

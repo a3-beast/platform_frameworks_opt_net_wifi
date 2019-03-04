@@ -48,7 +48,6 @@ public class ScanOnlyModeManager implements ActiveModeManager {
     private final Listener mListener;
     private final ScanRequestProxy mScanRequestProxy;
     private final WakeupController mWakeupController;
-    private final SarManager mSarManager;
 
     private String mClientInterfaceName;
     private boolean mIfaceIsUp = false;
@@ -59,15 +58,13 @@ public class ScanOnlyModeManager implements ActiveModeManager {
                         @NonNull WifiNative wifiNative, @NonNull Listener listener,
                         @NonNull WifiMetrics wifiMetrics,
                         @NonNull ScanRequestProxy scanRequestProxy,
-                        @NonNull WakeupController wakeupController,
-                        @NonNull SarManager sarManager) {
+                        @NonNull WakeupController wakeupController) {
         mContext = context;
         mWifiNative = wifiNative;
         mListener = listener;
         mWifiMetrics = wifiMetrics;
         mScanRequestProxy = scanRequestProxy;
         mWakeupController = wakeupController;
-        mSarManager = sarManager;
         mStateMachine = new ScanOnlyModeStateMachine(looper);
     }
 
@@ -245,7 +242,6 @@ public class ScanOnlyModeManager implements ActiveModeManager {
 
                 mIfaceIsUp = false;
                 onUpChanged(mWifiNative.isInterfaceUp(mClientInterfaceName));
-                mSarManager.setScanOnlyWifiState(WifiManager.WIFI_STATE_ENABLED);
             }
 
             @Override
@@ -264,8 +260,10 @@ public class ScanOnlyModeManager implements ActiveModeManager {
                         onUpChanged(isUp);
                         break;
                     case CMD_INTERFACE_DOWN:
-                        Log.d(TAG, "interface down!  stop mode");
-                        updateWifiState(WifiManager.WIFI_STATE_UNKNOWN);
+                        Log.d(TAG, "interface down!  restart scan mode");
+                        //updateWifiState(WifiManager.WIFI_STATE_UNKNOWN);
+                        WifiInjector.getInstance().
+                                getSelfRecovery().trigger(SelfRecovery.REASON_STA_IFACE_DOWN);
                         transitionTo(mIdleState);
                         break;
                     default:
@@ -285,7 +283,6 @@ public class ScanOnlyModeManager implements ActiveModeManager {
                     mClientInterfaceName = null;
                 }
                 updateWifiState(WifiManager.WIFI_STATE_DISABLED);
-                mSarManager.setScanOnlyWifiState(WifiManager.WIFI_STATE_DISABLED);
 
                 // once we leave started, nothing else to do...  stop the state machine
                 mStateMachine.quitNow();

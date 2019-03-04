@@ -211,6 +211,7 @@ public class ScanRequestProxy {
             Intent intent = new Intent(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION);
             intent.addFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY_BEFORE_BOOT);
             intent.putExtra(WifiManager.EXTRA_RESULTS_UPDATED, scanSucceeded);
+            com.mediatek.server.wifi.MtkWifiApmDelegate.getInstance().fillExtraInfo(intent);
             mContext.sendBroadcastAsUser(intent, UserHandle.ALL);
         } finally {
             // restore calling identity

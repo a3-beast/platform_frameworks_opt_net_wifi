@@ -53,6 +53,10 @@ public class NativeUtil {
         if (str == null) {
             throw new IllegalArgumentException("null string");
         }
+        // M: convert string back to GBK encoding bytes
+        if (com.mediatek.server.wifi.MtkGbkSsid.isGbkSsid(str)) {
+            return com.mediatek.server.wifi.MtkGbkSsid.stringToByteArrayList(str);
+        }
         // Ensure that the provided string is UTF_8 encoded.
         CharsetEncoder encoder = StandardCharsets.UTF_8.newEncoder();
         try {

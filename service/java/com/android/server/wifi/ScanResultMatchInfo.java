@@ -30,6 +30,7 @@ public class ScanResultMatchInfo {
     public static final int NETWORK_TYPE_WEP = 1;
     public static final int NETWORK_TYPE_PSK = 2;
     public static final int NETWORK_TYPE_EAP = 3;
+    public static final int NETWORK_TYPE_WAPI = 4;
 
     /**
      * SSID of the network.
@@ -54,6 +55,8 @@ public class ScanResultMatchInfo {
             info.networkType = NETWORK_TYPE_WEP;
         } else if (WifiConfigurationUtil.isConfigForOpenNetwork(config)) {
             info.networkType = NETWORK_TYPE_OPEN;
+        } else if (com.mediatek.server.wifi.MtkWapi.isConfigForWapiNetwork(config)) {
+            info.networkType = NETWORK_TYPE_WAPI;
         } else {
             throw new IllegalArgumentException("Invalid WifiConfiguration: " + config);
         }
@@ -70,7 +73,10 @@ public class ScanResultMatchInfo {
         // However, according to our public documentation ths {@link WifiConfiguration#SSID} can
         // either have a hex string or quoted ASCII string SSID.
         info.networkSsid = ScanResultUtil.createQuotedSSID(scanResult.SSID);
-        if (ScanResultUtil.isScanResultForPskNetwork(scanResult)) {
+        ///M: [WAPI] Need to check WAPI before PSK since [WAPI-PSK] contains [WAPI] and [PSK]
+        if (com.mediatek.server.wifi.MtkWapi.isScanResultForWapiNetwork(scanResult)) {
+            info.networkType = NETWORK_TYPE_WAPI;
+        } else if (ScanResultUtil.isScanResultForPskNetwork(scanResult)) {
             info.networkType = NETWORK_TYPE_PSK;
         } else if (ScanResultUtil.isScanResultForEapNetwork(scanResult)) {
             info.networkType = NETWORK_TYPE_EAP;

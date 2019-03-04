@@ -259,32 +259,24 @@ public class PasspointProvider {
      */
     public PasspointMatch match(Map<ANQPElementType, ANQPElement> anqpElements,
             RoamingConsortium roamingConsortium) {
-        PasspointMatch providerMatch = matchProviderExceptFor3GPP(anqpElements, roamingConsortium);
-
-        // 3GPP Network matching.
-        if (providerMatch == PasspointMatch.None && ANQPMatcher.matchThreeGPPNetwork(
-                (ThreeGPPNetworkElement) anqpElements.get(ANQPElementType.ANQP3GPPNetwork),
-                mImsiParameter, mMatchingSIMImsiList)) {
-            return PasspointMatch.RoamingProvider;
-        }
+        PasspointMatch providerMatch = matchProvider(anqpElements, roamingConsortium);
 
         // Perform authentication match against the NAI Realm.
         int authMatch = ANQPMatcher.matchNAIRealm(
                 (NAIRealmElement) anqpElements.get(ANQPElementType.ANQPNAIRealm),
                 mConfig.getCredential().getRealm(), mEAPMethodID, mAuthParam);
 
-        // In case of Auth mismatch, demote provider match.
+        // Auth mismatch, demote provider match.
         if (authMatch == AuthMatch.NONE) {
             return PasspointMatch.None;
         }
 
-        // In case of no realm match, return provider match as is.
+        // No realm match, return provider match as is.
         if ((authMatch & AuthMatch.REALM) == 0) {
             return providerMatch;
         }
 
-        // Promote the provider match to roaming provider if provider match is not found, but NAI
-        // realm is matched.
+        // Realm match, promote provider match to roaming if no other provider match is found.
         return providerMatch == PasspointMatch.None ? PasspointMatch.RoamingProvider
                 : providerMatch;
     }
@@ -462,14 +454,13 @@ public class PasspointProvider {
     }
 
     /**
-     * Perform a provider match based on the given ANQP elements except for matching 3GPP Network.
+     * Perform a provider match based on the given ANQP elements.
      *
      * @param anqpElements List of ANQP elements
      * @param roamingConsortium Roaming Consortium information element from the AP
      * @return {@link PasspointMatch}
      */
-    private PasspointMatch matchProviderExceptFor3GPP(
-            Map<ANQPElementType, ANQPElement> anqpElements,
+    private PasspointMatch matchProvider(Map<ANQPElementType, ANQPElement> anqpElements,
             RoamingConsortium roamingConsortium) {
         // Domain name matching.
         if (ANQPMatcher.matchDomainName(
@@ -498,6 +489,12 @@ public class PasspointProvider {
             }
         }
 
+        // 3GPP Network matching.
+        if (ANQPMatcher.matchThreeGPPNetwork(
+                (ThreeGPPNetworkElement) anqpElements.get(ANQPElementType.ANQP3GPPNetwork),
+                mImsiParameter, mMatchingSIMImsiList)) {
+            return PasspointMatch.RoamingProvider;
+        }
         return PasspointMatch.None;
     }
 

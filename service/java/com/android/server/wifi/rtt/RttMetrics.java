@@ -116,7 +116,6 @@ public class RttMetrics {
             return "numCalls=" + numCalls + ", numIndividualCalls=" + numIndividualCalls
                     + ", perUidInfo=" + perUidInfo + ", numRequestsHistogram="
                     + numRequestsHistogram + ", requestGapHistogram=" + requestGapHistogram
-                    + ", statusHistogram=" + statusHistogram
                     + ", measuredDistanceHistogram=" + measuredDistanceHistogram;
         }
     }

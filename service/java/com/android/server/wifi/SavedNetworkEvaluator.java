@@ -73,6 +73,7 @@ public class SavedNetworkEvaluator implements WifiNetworkSelector.NetworkEvaluat
 
     private void localLog(String log) {
         mLocalLog.log(log);
+        android.util.Log.d(NAME, log);
     }
 
     /**
@@ -262,6 +263,9 @@ public class SavedNetworkEvaluator implements WifiNetworkSelector.NetworkEvaluat
             status.setSeenInLastQualifiedNetworkSelection(true);
 
             if (!status.isNetworkEnabled()) {
+                localLog("Network " + WifiNetworkSelector.toNetworkString(network)
+                        + " skip calculateBssidScore process since it is not enabled("
+                        + status.getNetworkDisableReasonString() + ")");
                 continue;
             } else if (network.BSSID != null &&  !network.BSSID.equals("any")
                     && !network.BSSID.equals(scanResult.BSSID)) {
@@ -272,8 +276,10 @@ public class SavedNetworkEvaluator implements WifiNetworkSelector.NetworkEvaluat
                         + scanResult.BSSID);
                 continue;
             } else if (TelephonyUtil.isSimConfig(network)
-                    && !mWifiConfigManager.isSimPresent()) {
+                && !com.mediatek.server.wifi.MtkEapSimUtility.isConfigSimCardPresent(network)) {
                 // Don't select if security type is EAP SIM/AKA/AKA' when SIM is not present.
+                localLog("Network " + WifiNetworkSelector.toNetworkString(network)
+                        + " is skipped due to sim card absent");
                 continue;
             }
 

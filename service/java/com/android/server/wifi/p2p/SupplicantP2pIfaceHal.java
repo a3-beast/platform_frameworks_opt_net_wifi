@@ -350,7 +350,7 @@ public class SupplicantP2pIfaceHal {
      */
     public boolean teardownIface(@NonNull String ifaceName) {
         synchronized (mLock) {
-            if (mISupplicantP2pIface == null) return false;
+            if (mISupplicantP2pIface == null || ifaceName == null) return false;
             // Only supported for V1.1
             if (isV1_1()) {
                 return removeIfaceV1_1(ifaceName);
@@ -1937,6 +1937,29 @@ public class SupplicantP2pIfaceHal {
                     interface, instead of p2p mgmt interface*/
                 if (!resultIsCurrent.isSuccess() || resultIsCurrent.getResult()) {
                     Log.i(TAG, "Skipping current network");
+                    continue;
+                }
+
+                SupplicantResult<Boolean> resultIsPersistent =
+                        new SupplicantResult("isPersistent(" + networkId + ")");
+                try {
+                    network.isPersistent(
+                            (SupplicantStatus status, boolean isPersistent) -> {
+                                resultIsPersistent.setResult(status, isPersistent);
+                            });
+                } catch (RemoteException e) {
+                    Log.e(TAG, "ISupplicantP2pIface exception: " + e);
+                    supplicantServiceDiedHandler();
+                }
+                if (!resultIsPersistent.isSuccess() || !resultIsPersistent.getResult()) {
+                    /*
+                     * The unused profile is sometimes remained when the p2p group formation
+                     * is failed. So, we clean up the p2p group here.
+                     */
+                    if (DBG) {
+                        logd("clean up the unused persistent group. netId=" + networkId);
+                    }
+                    removeNetwork(networkId);
                     continue;
                 }
 

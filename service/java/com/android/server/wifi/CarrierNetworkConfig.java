@@ -36,9 +36,6 @@ import android.telephony.TelephonyManager;
 import android.util.Base64;
 import android.util.Log;
 
-import java.io.FileDescriptor;
-import java.io.PrintWriter;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -55,18 +52,8 @@ public class CarrierNetworkConfig {
     private static final int CONFIG_ELEMENT_SIZE = 2;
     private static final Uri CONTENT_URI = Uri.parse("content://carrier_information/carrier");
 
-    private boolean mDbg = false;
-
     private final Map<String, NetworkInfo> mCarrierNetworkMap;
     private boolean mIsCarrierImsiEncryptionInfoAvailable = false;
-    private ImsiEncryptionInfo mLastImsiEncryptionInfo = null; // used for dumpsys only
-
-    /**
-     * Enable/disable verbose logging.
-     */
-    public void enableVerboseLogging(int verbose) {
-        mDbg = verbose > 0;
-    }
 
     public CarrierNetworkConfig(@NonNull Context context, @NonNull Looper looper,
             @NonNull FrameworkFacade framework) {
@@ -138,9 +125,9 @@ public class CarrierNetworkConfig {
             return false;
         }
         try {
-            mLastImsiEncryptionInfo = telephonyManager
+            ImsiEncryptionInfo imsiEncryptionInfo = telephonyManager
                     .getCarrierInfoForImsiEncryption(TelephonyManager.KEY_TYPE_WLAN);
-            if (mLastImsiEncryptionInfo == null) {
+            if (imsiEncryptionInfo == null) {
                 return false;
             }
         } catch (RuntimeException e) {
@@ -161,12 +148,6 @@ public class CarrierNetworkConfig {
         NetworkInfo(int eapType, String carrierName) {
             mEapType = eapType;
             mCarrierName = carrierName;
-        }
-
-        @Override
-        public String toString() {
-            return new StringBuffer("NetworkInfo: eap=").append(mEapType).append(
-                    ", carrier=").append(mCarrierName).toString();
         }
     }
 
@@ -202,7 +183,7 @@ public class CarrierNetworkConfig {
         for (SubscriptionInfo subInfo : subInfoList) {
             processNetworkConfig(
                     carrierConfigManager.getConfigForSubId(subInfo.getSubscriptionId()),
-                    subInfo.getDisplayName().toString());
+                    (subInfo.getDisplayName() == null ? "" : subInfo.getDisplayName()).toString());
         }
     }
 
@@ -222,10 +203,6 @@ public class CarrierNetworkConfig {
         }
         String[] networkConfigs = carrierConfig.getStringArray(
                 CarrierConfigManager.KEY_CARRIER_WIFI_STRING_ARRAY);
-        if (mDbg) {
-            Log.v(TAG, "processNetworkConfig: networkConfigs="
-                    + Arrays.deepToString(networkConfigs));
-        }
         if (networkConfigs == null) {
             return;
         }
@@ -247,11 +224,9 @@ public class CarrierNetworkConfig {
                 }
                 mCarrierNetworkMap.put(ssid, new NetworkInfo(eapType, carrierName));
             } catch (NumberFormatException e) {
-                Log.e(TAG, "Failed to parse EAP type: '" + configArr[EAP_TYPE_INDEX] + "' "
-                        + e.getMessage());
+                Log.e(TAG, "Failed to parse EAP type: " + e.getMessage());
             } catch (IllegalArgumentException e) {
-                Log.e(TAG, "Failed to decode SSID: '" + configArr[ENCODED_SSID_INDEX] + "' "
-                        + e.getMessage());
+                Log.e(TAG, "Failed to decode SSID: " + e.getMessage());
             }
         }
     }
@@ -273,14 +248,5 @@ public class CarrierNetworkConfig {
             return WifiEnterpriseConfig.Eap.AKA_PRIME;
         }
         return -1;
-    }
-
-    /** Dump state. */
-    public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
-        pw.println(TAG + ": ");
-        pw.println("mCarrierNetworkMap=" + mCarrierNetworkMap);
-        pw.println("mIsCarrierImsiEncryptionInfoAvailable="
-                + mIsCarrierImsiEncryptionInfoAvailable);
-        pw.println("mLastImsiEncryptionInfo=" + mLastImsiEncryptionInfo);
     }
 }

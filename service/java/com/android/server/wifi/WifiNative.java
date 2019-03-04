@@ -57,6 +57,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -1151,7 +1152,7 @@ public class WifiNative {
      */
     public boolean scan(
             @NonNull String ifaceName, int scanType, Set<Integer> freqs,
-            Set<String> hiddenNetworkSSIDs) {
+            List<String> hiddenNetworkSSIDs) {
         return mWificondControl.scan(ifaceName, scanType, freqs, hiddenNetworkSSIDs);
     }
 
@@ -1264,7 +1265,8 @@ public class WifiNative {
             mWifiMetrics.incrementNumSetupSoftApInterfaceFailureDueToHostapd();
             return false;
         }
-        if (!mHostapdHal.addAccessPoint(ifaceName, config)) {
+        // M: Wi-Fi Hotspot Manager
+        if (!com.mediatek.server.wifi.MtkHostapdHal.addAccessPoint(ifaceName, config)) {
             Log.e(TAG, "Failed to add acccess point");
             mWifiMetrics.incrementNumSetupSoftApInterfaceFailureDueToHostapd();
             return false;
@@ -1742,6 +1744,8 @@ public class WifiNative {
      */
     public void setPowerSave(@NonNull String ifaceName, boolean enabled) {
         mSupplicantStaIfaceHal.setPowerSave(ifaceName, enabled);
+        com.mediatek.server.wifi.MtkWifiApmDelegate.getInstance().broadcastPowerSaveModeChanged(
+                enabled);
     }
 
     /**
@@ -2820,14 +2824,21 @@ public class WifiNative {
     }
 
     /**
-     * Select one of the pre-configured transmit power level scenarios or reset it back to normal.
-     * Primarily used for meeting SAR requirements.
+     * Tx power level scenarios that can be selected.
+     */
+    public static final int TX_POWER_SCENARIO_NORMAL = 0;
+    public static final int TX_POWER_SCENARIO_VOICE_CALL = 1;
+
+    /**
+     * Select one of the pre-configured TX power level scenarios or reset it back to normal.
+     * Primarily used for meeting SAR requirements during voice calls.
      *
-     * @param sarInfo The collection of inputs used to select the SAR scenario.
+     * @param scenario Should be one {@link #TX_POWER_SCENARIO_NORMAL} or
+     *        {@link #TX_POWER_SCENARIO_VOICE_CALL}.
      * @return true for success; false for failure or if the HAL version does not support this API.
      */
-    public boolean selectTxPowerScenario(SarInfo sarInfo) {
-        return mWifiVendorHal.selectTxPowerScenario(sarInfo);
+    public boolean selectTxPowerScenario(int scenario) {
+        return mWifiVendorHal.selectTxPowerScenario(scenario);
     }
 
     /********************************************************
