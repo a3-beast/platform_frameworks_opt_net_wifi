@@ -1268,7 +1268,8 @@ public class WifiNative {
             mWifiMetrics.incrementNumSetupSoftApInterfaceFailureDueToHostapd();
             return false;
         }
-        if (!mHostapdHal.addAccessPoint(ifaceName, config)) {
+        // M: Wi-Fi Hotspot Manager
+        if (!com.mediatek.server.wifi.MtkHostapdHal.addAccessPoint(ifaceName, config)) {
             Log.e(TAG, "Failed to add acccess point");
             mWifiMetrics.incrementNumSetupSoftApInterfaceFailureDueToHostapd();
             return false;

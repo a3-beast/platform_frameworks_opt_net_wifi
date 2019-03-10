@@ -465,9 +465,11 @@ public class WifiInjector {
      */
     public SoftApManager makeSoftApManager(@NonNull WifiManager.SoftApCallback callback,
                                            @NonNull SoftApModeConfiguration config) {
-        return new SoftApManager(mContext, mWifiStateMachineHandlerThread.getLooper(),
+        // M: Wi-Fi Hotspot Manager
+        return new com.mediatek.server.wifi.MtkSoftApManager(
+                mContext, mWifiStateMachineHandlerThread.getLooper(),
                 mFrameworkFacade, mWifiNative, mCountryCode.getCountryCode(), callback,
-                mWifiApConfigStore, config, mWifiMetrics, mSarManager);
+                mWifiApConfigStore, config, mWifiMetrics);
     }
 
     /**

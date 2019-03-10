@@ -133,7 +133,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * @hide
  */
-public class WifiServiceImpl extends IWifiManager.Stub {
+public class WifiServiceImpl extends com.mediatek.server.wifi.MtkWifiServiceImpl {
     private static final String TAG = "WifiService";
     private static final boolean VDBG = false;
 
@@ -444,6 +444,9 @@ public class WifiServiceImpl extends IWifiManager.Stub {
     private WifiApConfigStore mWifiApConfigStore;
 
     public WifiServiceImpl(Context context, WifiInjector wifiInjector, AsyncChannel asyncChannel) {
+        /// M: Hotspot manager implementation
+        super(context, wifiInjector, asyncChannel);
+
         mContext = context;
         mWifiInjector = wifiInjector;
         mClock = wifiInjector.getClock();
@@ -1583,21 +1586,6 @@ public class WifiServiceImpl extends IWifiManager.Stub {
     }
 
     /**
-     * Method used to inform user of Ap Configuration conversion due to hardware.
-     */
-    @Override
-    public void notifyUserOfApBandConversion(String packageName) {
-        enforceNetworkSettingsPermission();
-
-        if (mVerboseLoggingEnabled) {
-            mLog.info("notifyUserOfApBandConversion uid=% packageName=%")
-                    .c(Binder.getCallingUid()).c(packageName).flush();
-        }
-
-        mWifiApConfigStore.notifyUserOfApBandConversion(packageName);
-    }
-
-    /**
      * see {@link android.net.wifi.WifiManager#isScanAlwaysAvailable()}
      */
     @Override
@@ -2571,11 +2559,6 @@ public class WifiServiceImpl extends IWifiManager.Stub {
             if (wifiScoreReport != null) {
                 pw.println("WifiScoreReport:");
                 wifiScoreReport.dump(fd, pw, args);
-            }
-            pw.println();
-            SarManager sarManager = mWifiInjector.getSarManager();
-            if (sarManager != null) {
-                sarManager.dump(fd, pw, args);
             }
             pw.println();
         }

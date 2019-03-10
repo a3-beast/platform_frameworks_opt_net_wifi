@@ -14,23 +14,32 @@
  * limitations under the License.
  */
 
-package com.android.server.wifi;
+package com.mediatek.server.wifi;
 
 import static com.android.server.wifi.util.ApConfigUtil.ERROR_GENERIC;
 import static com.android.server.wifi.util.ApConfigUtil.ERROR_NO_CHANNEL;
 import static com.android.server.wifi.util.ApConfigUtil.SUCCESS;
 
 import android.annotation.NonNull;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.database.ContentObserver;
+import android.net.NetworkInfo;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiManager;
 import android.net.wifi.WifiScanner;
+import android.net.wifi.p2p.WifiP2pManager;
+import android.net.wifi.p2p.WifiP2pManager.ActionListener;
+import android.net.wifi.p2p.WifiP2pManager.Channel;
+import android.os.Build;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
 import android.os.SystemClock;
+import android.os.SystemProperties;
 import android.os.UserHandle;
 import android.provider.Settings;
 import android.text.TextUtils;
@@ -40,25 +49,44 @@ import com.android.internal.R;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.ArrayUtils;
 import com.android.internal.util.IState;
+import com.android.internal.util.Protocol;
 import com.android.internal.util.State;
 import com.android.internal.util.StateMachine;
 import com.android.internal.util.WakeupMessage;
+import com.android.server.wifi.FrameworkFacade;
+import com.android.server.wifi.SoftApManager;
+import com.android.server.wifi.SoftApModeConfiguration;
+import com.android.server.wifi.WifiApConfigStore;
+import com.android.server.wifi.WifiMetrics;
+import com.android.server.wifi.WifiNative;
 import com.android.server.wifi.WifiNative.InterfaceCallback;
 import com.android.server.wifi.WifiNative.SoftApListener;
 import com.android.server.wifi.util.ApConfigUtil;
 
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.FileDescriptor;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
 import java.io.PrintWriter;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.stream.Stream;
+
+import mediatek.net.wifi.HotspotClient;
+import mediatek.net.wifi.WifiHotspotManager;
 
 /**
  * Manage WiFi in AP mode.
  * The internal state machine runs under "WifiStateMachine" thread context.
  */
-public class SoftApManager implements ActiveModeManager {
-    private static final String TAG = "SoftApManager";
+public class MtkSoftApManager extends SoftApManager {
+    private static final String TAG = "MtkSoftApManager";
 
     // Minimum limit to use for timeout delay if the value from overlay setting is too small.
     private static final int MIN_SOFT_AP_TIMEOUT_DELAY_MS = 600_000;  // 10 minutes
@@ -93,7 +121,6 @@ public class SoftApManager implements ActiveModeManager {
     private int mNumAssociatedStations = 0;
     private boolean mTimeoutEnabled = false;
 
-
     /**
      * Listener for soft AP events.
      */
@@ -111,15 +138,61 @@ public class SoftApManager implements ActiveModeManager {
         }
     };
 
-    public SoftApManager(@NonNull Context context,
-                         @NonNull Looper looper,
-                         @NonNull FrameworkFacade framework,
-                         @NonNull WifiNative wifiNative,
-                         String countryCode,
-                         @NonNull WifiManager.SoftApCallback callback,
-                         @NonNull WifiApConfigStore wifiApConfigStore,
-                         @NonNull SoftApModeConfiguration apConfig,
-                         @NonNull WifiMetrics wifiMetrics) {
+    // M: Wi-Fi Hotspot Manager
+    static final int BASE = Protocol.BASE_WIFI;
+    public static final int M_CMD_BLOCK_CLIENT                 = BASE + 300;
+    public static final int M_CMD_UNBLOCK_CLIENT               = BASE + 301;
+    public static final int M_CMD_GET_CLIENTS_LIST             = BASE + 302;
+    public static final int M_CMD_START_AP_WPS                 = BASE + 303;
+    public static final int M_CMD_IS_ALL_DEVICES_ALLOWED       = BASE + 304;
+    public static final int M_CMD_SET_ALL_DEVICES_ALLOWED      = BASE + 305;
+    public static final int M_CMD_ALLOW_DEVICE                 = BASE + 306;
+    public static final int M_CMD_DISALLOW_DEVICE              = BASE + 307;
+    public static final int M_CMD_GET_ALLOWED_DEVICES          = BASE + 308;
+
+    private HashMap<String, HotspotClient> mHotspotClients =
+                                                    new HashMap<String, HotspotClient>();
+
+    private static LinkedHashMap<String, HotspotClient> sAllowedDevices;
+    private static final String ALLOWED_LIST_FILE =
+            Environment.getDataDirectory() + "/misc/wifi/allowed_list.conf";
+
+    // M: Need to stop softap when p2p is connected for STA+SAP case.
+    private Looper mLooper;
+    private final BroadcastReceiver mWifiP2pReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            final String action = intent.getAction();
+            if (action.equals(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION)) {
+                NetworkInfo networkInfo =
+                        (NetworkInfo) intent.getParcelableExtra(WifiP2pManager.EXTRA_NETWORK_INFO);
+                boolean p2pIsConnected = networkInfo.isConnected();
+                Log.d(TAG, "[STA+SAP] Received WIFI_P2P_CONNECTION_CHANGED_ACTION: isConnected = "
+                        + p2pIsConnected);
+                if (p2pIsConnected) {
+                    Log.d(TAG, "[STA+SAP] Stop softap due to p2p is connected");
+                    WifiManager wifiManager =
+                            (WifiManager) mContext.getSystemService(Context.WIFI_SERVICE);
+                    wifiManager.stopSoftAp();
+                }
+            }
+        }
+    };
+
+    public MtkSoftApManager(@NonNull Context context,
+                            @NonNull Looper looper,
+                            @NonNull FrameworkFacade framework,
+                            @NonNull WifiNative wifiNative,
+                            String countryCode,
+                            @NonNull WifiManager.SoftApCallback callback,
+                            @NonNull WifiApConfigStore wifiApConfigStore,
+                            @NonNull SoftApModeConfiguration apConfig,
+                            @NonNull WifiMetrics wifiMetrics) {
+        // M: Wi-Fi Hotspot Manager
+        super(context, looper, framework, wifiNative, countryCode, callback, wifiApConfigStore,
+                apConfig, wifiMetrics);
+        mLooper = looper;
+
         mContext = context;
         mFrameworkFacade = framework;
         mWifiNative = wifiNative;
@@ -195,6 +268,163 @@ public class SoftApManager implements ActiveModeManager {
         return "StateMachine not active";
     }
 
+    // M: Wi-Fi Hotspot Manager
+    public List<HotspotClient> getHotspotClientsList() {
+        List<HotspotClient> clients = new ArrayList<HotspotClient>();
+        synchronized (mHotspotClients) {
+            for (HotspotClient client : mHotspotClients.values()) {
+                clients.add(new HotspotClient(client));
+            }
+        }
+        return clients;
+    }
+
+    public boolean syncBlockClient(HotspotClient client) {
+        boolean result;
+        synchronized (mHotspotClients) {
+            result = MtkHostapdHal.blockClient(client.deviceAddress);
+            if (result) {
+                HotspotClient cli =
+                        mHotspotClients.get(client.deviceAddress);
+                if (cli != null) {
+                    cli.isBlocked = true;
+                } else {
+                    Log.e(TAG, "Failed to get " + client.deviceAddress);
+                }
+                sendClientsChangedBroadcast();
+            } else {
+                Log.e(TAG, "Failed to block " + client.deviceAddress);
+            }
+        }
+        return result;
+    }
+
+    public boolean syncUnblockClient(HotspotClient client) {
+        boolean result;
+        synchronized (mHotspotClients) {
+            result = MtkHostapdHal.unblockClient(client.deviceAddress);
+            if (result) {
+                mHotspotClients.remove(client.deviceAddress);
+                sendClientsChangedBroadcast();
+            } else {
+                Log.e(TAG, "Failed to unblock " + client.deviceAddress);
+            }
+        }
+        return result;
+    }
+
+    public boolean syncSetAllDevicesAllowed(boolean enabled, boolean allowAllConnectedDevices) {
+        if (!enabled) {
+            synchronized (mHotspotClients) {
+                initAllowedListIfNecessary();
+                if (allowAllConnectedDevices && mHotspotClients.size() > 0) {
+                    String content = "";
+                    for (HotspotClient client : mHotspotClients.values()) {
+                        if (!client.isBlocked &&
+                                !sAllowedDevices.containsKey(client.deviceAddress)) {
+                            sAllowedDevices.put(client.deviceAddress, new HotspotClient(client));
+                            content += client.deviceAddress + "\n";
+                        }
+                    }
+
+                    if (!content.equals("")) {
+                        writeAllowedList();
+                        updateAcceptMacFile(content);
+                    }
+                }
+            }
+        }
+
+        return MtkHostapdHal.setAllDevicesAllowed(enabled);
+    }
+
+    public static void addDeviceToAllowedList(HotspotClient device) {
+        Log.d(TAG, "addDeviceToAllowedList device = " + device +
+            ", is name null?" + (device.name == null));
+        initAllowedListIfNecessary();
+        if (!sAllowedDevices.containsKey(device.deviceAddress)) {
+            sAllowedDevices.put(device.deviceAddress, device);
+        }
+        writeAllowedList();
+    }
+
+    public void syncAllowDevice(String address) {
+        updateAcceptMacFile(address);
+    }
+
+    public static void removeDeviceFromAllowedList(String address) {
+        Log.d(TAG, "removeDeviceFromAllowedList address = " + address);
+        initAllowedListIfNecessary();
+        sAllowedDevices.remove(address);
+        writeAllowedList();
+    }
+
+    public void syncDisallowDevice(String address) {
+        updateAcceptMacFile("-" + address);
+    }
+
+    public static List<HotspotClient> getAllowedDevices() {
+        Log.d(TAG, "getAllowedDevices");
+        initAllowedListIfNecessary();
+        List<HotspotClient> devices = new ArrayList<HotspotClient>();
+        for (HotspotClient device : sAllowedDevices.values()) {
+            devices.add(new HotspotClient(device));
+            Log.d(TAG, "device = " + device);
+        }
+        return devices;
+    }
+
+    private static void initAllowedListIfNecessary() {
+        if (sAllowedDevices == null) {
+            sAllowedDevices = new LinkedHashMap<String, HotspotClient>();
+
+            try {
+                BufferedReader br = new BufferedReader(new FileReader(ALLOWED_LIST_FILE));
+                String line = br.readLine();
+                while (line != null) {
+                    String[] result = line.split("\t");
+                    if (result == null) {
+                        continue;
+                    }
+                    String address = result[0];
+                    boolean blocked = result[1].equals("1") ? true : false;
+                    String name = result.length == 3 ? result[2] : "";
+                    sAllowedDevices.put(address, new HotspotClient(address, blocked, name));
+                    line = br.readLine();
+                }
+                br.close();
+            } catch (IOException e) {
+                Log.e(TAG, e.toString(), new Throwable("initAllowedListIfNecessary"));
+            }
+        }
+    }
+
+    private static void writeAllowedList() {
+        String content = "";
+        for (HotspotClient device : sAllowedDevices.values()) {
+            String blocked = device.isBlocked == true ? "1" : "0";
+            if (device.name != null) {
+                content += device.deviceAddress + "\t" + blocked + "\t" + device.name + "\n";
+            } else {
+                content += device.deviceAddress + "\t" + blocked + "\n";
+            }
+        }
+
+        Log.d(TAG, "writeAllowedLis content = " + content);
+        try {
+            BufferedWriter bw = new BufferedWriter(new FileWriter(ALLOWED_LIST_FILE));
+            bw.write(content);
+            bw.close();
+        } catch (IOException e) {
+            Log.e(TAG, e.toString(), new Throwable("writeAllowedList"));
+        }
+    }
+
+    private void updateAcceptMacFile(String content) {
+        Log.d(TAG, "updateAllowedList content = " + content);
+        MtkHostapdHal.updateAllowedList(content);
+    }
+
     /**
      * Update AP state.
      * @param newState new AP state
@@ -233,15 +463,7 @@ public class SoftApManager implements ActiveModeManager {
         // Make a copy of configuration for updating AP band and channel.
         WifiConfiguration localConfig = new WifiConfiguration(config);
 
-        int result = ApConfigUtil.updateApChannelConfig(
-                mWifiNative, mCountryCode,
-                mWifiApConfigStore.getAllowed2GChannel(), localConfig);
-
-        if (result != SUCCESS) {
-            Log.e(TAG, "Failed to update AP band and channel");
-            return result;
-        }
-		
+        // M: Move setCountryCodeHal forward for getting the correct 5G channel list
         // Setup country code if it is provided.
         if (mCountryCode != null) {
             // Country code is mandatory for 5GHz band, return an error if failed to set
@@ -255,13 +477,103 @@ public class SoftApManager implements ActiveModeManager {
             }
         }
 
+        // M: Need to config channel when starting softap for STA+SAP case.
+        WifiManager wifiManager =
+                (WifiManager) mContext.getSystemService(Context.WIFI_SERVICE);
+        if (wifiManager.getCurrentNetwork() != null) {
+            int staChannel = ApConfigUtil.convertFrequencyToChannel(
+                    wifiManager.getConnectionInfo().getFrequency());
+            Log.e(TAG, "[STA+SAP] Need to config channel for STA+SAP case"
+                    + ", getCurrentNetwork = " + wifiManager.getCurrentNetwork()
+                    + ", staChannel = " + staChannel
+                    + ", Build.HARDWARE = " + Build.HARDWARE);
+            if (Build.HARDWARE.equals("mt6779")) {
+                if ((staChannel >= 1 && staChannel <= 14
+                            && localConfig.apBand == WifiConfiguration.AP_BAND_2GHZ)
+                        || (staChannel >= 34
+                            && localConfig.apBand == WifiConfiguration.AP_BAND_5GHZ)) {
+                    // M: SCC
+                    localConfig.apChannel = staChannel;
+                }
+                // M: DBDC
+            } else {
+                // M: SCC
+                if (staChannel >= 1 && staChannel <= 14) {
+                    localConfig.apBand = WifiConfiguration.AP_BAND_2GHZ;
+                    localConfig.apChannel = staChannel;
+                } else if (staChannel >= 34) {
+                    localConfig.apBand = WifiConfiguration.AP_BAND_5GHZ;
+                    localConfig.apChannel = staChannel;
+                }
+            }
+            Log.e(TAG, "[STA+SAP] apBand = " + localConfig.apBand
+                    + ", apChannel = " + localConfig.apChannel);
+        }
+
+        // M: Need to disconnect p2p when starting softap for STA+SAP case.
+        if (mWifiNative.getClientInterfaceName() != null) {
+            WifiP2pManager wifiP2pManager =
+                    (WifiP2pManager) mContext.getSystemService(Context.WIFI_P2P_SERVICE);
+            Channel wifiP2pChannel = wifiP2pManager.initialize(mContext, mLooper, null);
+            wifiP2pManager.removeGroup(wifiP2pChannel, new ActionListener() {
+                @Override
+                public void onSuccess() {
+                    Log.i(TAG, "[STA+SAP] Disconnect p2p successfully");
+                }
+
+                @Override
+                public void onFailure(int reason) {
+                    Log.i(TAG, "[STA+SAP] Disconnect p2p failed, reason = " + reason);
+                }
+            });
+            wifiP2pManager.cancelConnect(wifiP2pChannel, new ActionListener() {
+                @Override
+                public void onSuccess() {
+                    Log.i(TAG, "[STA+SAP] Cancel connect p2p successfully");
+                }
+
+                @Override
+                public void onFailure(int reason) {
+                    Log.i(TAG, "[STA+SAP] Cancel connect p2p failed, reason = " + reason);
+                }
+            });
+        }
+
+        int result = ApConfigUtil.updateApChannelConfig(
+                mWifiNative, mCountryCode,
+                mWifiApConfigStore.getAllowed2GChannel(), localConfig);
+
+        if (result != SUCCESS) {
+            Log.e(TAG, "Failed to update AP band and channel");
+            return result;
+        }
+
         if (localConfig.hiddenSSID) {
             Log.d(TAG, "SoftAP is a hidden network");
         }
+
+        // M: Fix channel for testing
+        String fixChannelString = SystemProperties.get("wifi.tethering.channel");
+        int fixChannel = -1;
+        if (fixChannelString != null && fixChannelString.length() > 0) {
+            fixChannel = Integer.parseInt(fixChannelString);
+            if (fixChannel >= 0) {
+                localConfig.apChannel = fixChannel;
+            }
+        }
+
         if (!mWifiNative.startSoftAp(mApInterfaceName, localConfig, mSoftApListener)) {
             Log.e(TAG, "Soft AP start failed");
             return ERROR_GENERIC;
         }
+
+        // M: Wi-Fi Hotspot Manager
+        MtkHostapdHalCallback callback = new MtkHostapdHalCallback();
+        if (!MtkHostapdHal.registerCallback(callback)) {
+            Log.d(TAG, "Failed to register MtkHostapdHalCallback");
+            return ERROR_GENERIC;
+        }
+
         Log.d(TAG, "Soft AP is started");
 
         return SUCCESS;
@@ -275,6 +587,22 @@ public class SoftApManager implements ActiveModeManager {
         Log.d(TAG, "Soft AP is stopped");
     }
 
+    // M: Wi-Fi Hotspot Manager
+    private void sendClientsChangedBroadcast() {
+        Intent intent = new Intent(WifiHotspotManager.WIFI_HOTSPOT_CLIENTS_CHANGED_ACTION);
+        intent.addFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY_BEFORE_BOOT);
+        mContext.sendBroadcastAsUser(intent, UserHandle.ALL);
+    }
+
+    private void sendClientsIpReadyBroadcast(String mac, String ip, String deviceName) {
+        Intent intent = new Intent("android.net.wifi.WIFI_HOTSPOT_CLIENTS_IP_READY");
+        intent.addFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY_BEFORE_BOOT);
+        intent.putExtra(WifiHotspotManager.EXTRA_DEVICE_ADDRESS, mac);
+        intent.putExtra(WifiHotspotManager.EXTRA_IP_ADDRESS, ip);
+        intent.putExtra(WifiHotspotManager.EXTRA_DEVICE_NAME, deviceName);
+        mContext.sendBroadcastAsUser(intent, UserHandle.ALL);
+    }
+
     private class SoftApStateMachine extends StateMachine {
         // Commands for the state machine.
         public static final int CMD_START = 0;
@@ -285,6 +613,18 @@ public class SoftApManager implements ActiveModeManager {
         public static final int CMD_INTERFACE_DESTROYED = 7;
         public static final int CMD_INTERFACE_DOWN = 8;
         public static final int CMD_SOFT_AP_CHANNEL_SWITCHED = 9;
+
+        // M: Wi-Fi Hotspot Manager
+        public static final int CMD_POLL_IP_ADDRESS = 100;
+
+        /* Should be the same with WifiStateMachine */
+        private static final int Wifi_SUCCESS = 1;
+        private static final int Wifi_FAILURE = -1;
+
+        private static final int POLL_IP_ADDRESS_INTERVAL_MSECS = 2000;
+        private static final int POLL_IP_TIMES = 15;
+
+        private final WifiManager mWifiManager;
 
         private final State mIdleState = new IdleState();
         private final State mStartedState = new StartedState();
@@ -320,6 +660,9 @@ public class SoftApManager implements ActiveModeManager {
 
             setInitialState(mIdleState);
             start();
+
+            // M: Wi-Fi Hotspot Manager
+            mWifiManager = (WifiManager) mContext.getSystemService(Context.WIFI_SERVICE);
         }
 
         private class IdleState extends State {
@@ -359,6 +702,18 @@ public class SoftApManager implements ActiveModeManager {
                             mWifiMetrics.incrementSoftApStartResult(false, failureReason);
                             break;
                         }
+
+                        // M: Wi-Fi Hotspot Manager
+                        MtkWifiApMonitor.registerHandler(
+                                mApInterfaceName,
+                                MtkWifiApMonitor.AP_STA_CONNECTED_EVENT,
+                                getHandler());
+                        MtkWifiApMonitor.registerHandler(
+                                mApInterfaceName,
+                                MtkWifiApMonitor.AP_STA_DISCONNECTED_EVENT,
+                                getHandler());
+                        MtkWifiApMonitor.startMonitoring(mApInterfaceName);
+
                         transitionTo(mStartedState);
                         break;
                     default:
@@ -493,10 +848,14 @@ public class SoftApManager implements ActiveModeManager {
                 if (mSettingObserver != null) {
                     mSettingObserver.register();
                 }
-                
                 Log.d(TAG, "Resetting num stations on start");
                 mNumAssociatedStations = 0;
                 scheduleTimeoutMessage();
+
+                // M: STA+SAP
+                IntentFilter intentFilter = new IntentFilter();
+                intentFilter.addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION);
+                mContext.registerReceiver(mWifiP2pReceiver, intentFilter);
             }
 
             @Override
@@ -515,6 +874,17 @@ public class SoftApManager implements ActiveModeManager {
                 mWifiMetrics.addSoftApUpChangedEvent(false, mMode);
                 updateApState(WifiManager.WIFI_AP_STATE_DISABLED,
                         WifiManager.WIFI_AP_STATE_DISABLING, 0);
+
+                // M: Wi-Fi Hotspot Manager
+                MtkWifiApMonitor.deregisterAllHandler();
+                MtkWifiApMonitor.stopMonitoring(mApInterfaceName);
+                synchronized (mHotspotClients) {
+                    mHotspotClients.clear();
+                }
+                sendClientsChangedBroadcast();
+
+                // M: STA+SAP
+                mContext.unregisterReceiver(mWifiP2pReceiver);
 
                 mApInterfaceName = null;
                 mIfaceIsUp = false;
@@ -613,6 +983,50 @@ public class SoftApManager implements ActiveModeManager {
                         updateApState(WifiManager.WIFI_AP_STATE_DISABLING,
                                 WifiManager.WIFI_AP_STATE_FAILED, 0);
                         transitionTo(mIdleState);
+                        break;
+                    // M: Wi-Fi Hotspot Manager
+                    case CMD_POLL_IP_ADDRESS:
+                        String deviceAddress = (String) message.obj;
+                        int count = message.arg1;
+                        String ipAddress =
+                            mWifiManager.getWifiHotspotManager().getClientIp(deviceAddress);
+                        String deviceName =
+                            mWifiManager.getWifiHotspotManager().getClientDeviceName(deviceAddress);
+                        Log.d(TAG, "CMD_POLL_IP_ADDRESS ,deviceAddress = " +
+                              message.obj + " ipAddress = " + ipAddress + ", count = " + count);
+                        if (ipAddress == null && count < POLL_IP_TIMES) {
+                            sendMessageDelayed(CMD_POLL_IP_ADDRESS, ++count, 0, deviceAddress,
+                                               POLL_IP_ADDRESS_INTERVAL_MSECS);
+                        } else if (ipAddress != null) {
+                            sendClientsIpReadyBroadcast(deviceAddress, ipAddress, deviceName);
+                        }
+                        break;
+                    case MtkWifiApMonitor.AP_STA_CONNECTED_EVENT:
+                        Log.d(TAG, "AP STA CONNECTED:" + message.obj);
+                        String address = (String) message.obj;
+                        synchronized (mHotspotClients) {
+                            if (!mHotspotClients.containsKey(address)) {
+                                mHotspotClients.put(address, new HotspotClient(address, false));
+                            }
+                        }
+
+                        int start = 1;
+                        sendMessageDelayed(CMD_POLL_IP_ADDRESS, start, 0, address,
+                                           POLL_IP_ADDRESS_INTERVAL_MSECS);
+
+                        sendClientsChangedBroadcast();
+                        break;
+                    case MtkWifiApMonitor.AP_STA_DISCONNECTED_EVENT:
+                        Log.d(TAG, "AP STA DISCONNECTED:" + message.obj);
+                        address = (String) message.obj;
+                        synchronized (mHotspotClients) {
+                            HotspotClient client = mHotspotClients.get(address);
+                            if (client != null && !client.isBlocked) {
+                                mHotspotClients.remove(address);
+                            }
+                        }
+
+                        sendClientsChangedBroadcast();
                         break;
                     default:
                         return NOT_HANDLED;

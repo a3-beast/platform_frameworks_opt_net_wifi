@@ -656,7 +656,6 @@ public class PasspointManager {
                 numConnectedProviders++;
             }
         }
-        mWifiMetrics.updateSavedPasspointProfilesInfo(mProviders);
         mWifiMetrics.updateSavedPasspointProfiles(numProviders, numConnectedProviders);
     }
 

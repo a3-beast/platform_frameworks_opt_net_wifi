@@ -68,7 +68,9 @@ LOCAL_STATIC_JAVA_LIBRARIES := \
 	android.hardware.wifi-V1.2-java \
 	android.hardware.wifi.hostapd-V1.0-java \
 	android.hardware.wifi.supplicant-V1.0-java \
-	android.hardware.wifi.supplicant-V1.1-java
+	android.hardware.wifi.supplicant-V1.1-java \
+	vendor.mediatek.hardware.wifi.hostapd-V2.0-java \
+    vendor.mediatek.hardware.wifi.supplicant-V2.0-java
 LOCAL_REQUIRED_MODULES := \
 	services \
 	libwifi-service \
