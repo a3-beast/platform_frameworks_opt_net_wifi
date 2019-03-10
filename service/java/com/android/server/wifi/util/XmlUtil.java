@@ -323,6 +323,7 @@ public class XmlUtil {
         public static final String XML_TAG_ALLOWED_GROUP_CIPHERS = "AllowedGroupCiphers";
         public static final String XML_TAG_ALLOWED_PAIRWISE_CIPHERS = "AllowedPairwiseCiphers";
         public static final String XML_TAG_SHARED = "Shared";
+        public static final String XML_TAG_SIM_SLOT = "SimSlot";
         public static final String XML_TAG_STATUS = "Status";
         public static final String XML_TAG_FQDN = "FQDN";
         public static final String XML_TAG_PROVIDER_FRIENDLY_NAME = "ProviderFriendlyName";
@@ -343,6 +344,10 @@ public class XmlUtil {
         public static final String XML_TAG_LAST_CONNECT_UID = "LastConnectUid";
         public static final String XML_TAG_IS_LEGACY_PASSPOINT_CONFIG = "IsLegacyPasspointConfig";
         public static final String XML_TAG_ROAMING_CONSORTIUM_OIS = "RoamingConsortiumOIs";
+        /// M: Add for WAPI
+        public static final String XML_TAG_ALIASES = "Aliases";
+        /// M: Add for OP
+        public static final String XML_TAG_PRIORITY = "Priority";
 
         /**
          * Write WepKeys to the XML stream.
@@ -405,6 +410,11 @@ public class XmlUtil {
                     out, XML_TAG_ALLOWED_PAIRWISE_CIPHERS,
                     configuration.allowedPairwiseCiphers.toByteArray());
             XmlUtil.writeNextValue(out, XML_TAG_SHARED, configuration.shared);
+            XmlUtil.writeNextValue(out, XML_TAG_SIM_SLOT, configuration.simSlot);
+            /// M: Add for WAPI
+            XmlUtil.writeNextValue(out, XML_TAG_ALIASES, configuration.mAliases);
+            /// M: Add for OP
+            XmlUtil.writeNextValue(out, XML_TAG_PRIORITY, configuration.priority);
         }
 
         /**
@@ -560,6 +570,9 @@ public class XmlUtil {
                     case XML_TAG_SHARED:
                         configuration.shared = (boolean) value;
                         break;
+                    case XML_TAG_SIM_SLOT:
+                        configuration.simSlot = (String) value;
+                        break;
                     case XML_TAG_STATUS:
                         int status = (int) value;
                         // Any network which was CURRENT before reboot needs
@@ -626,7 +639,15 @@ public class XmlUtil {
                     case XML_TAG_ROAMING_CONSORTIUM_OIS:
                         configuration.roamingConsortiumIds = (long[]) value;
                         break;
-                    default:
+                    /// M: Add for WAPI
+                    case XML_TAG_ALIASES:
+                        configuration.mAliases= (String) value;
+                        break;
+                    /// M: Add for OP
+                    case XML_TAG_PRIORITY:
+                        configuration.priority= (int) value;
+                        break;
+                default:
                         throw new XmlPullParserException(
                                 "Unknown value name found: " + valueName[0]);
                 }

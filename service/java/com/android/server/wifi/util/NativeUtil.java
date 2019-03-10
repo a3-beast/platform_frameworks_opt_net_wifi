@@ -52,6 +52,12 @@ public class NativeUtil {
         if (str == null) {
             throw new IllegalArgumentException("null string");
         }
+
+        // M: convert string back to GBK encoding
+        if (com.mediatek.server.wifi.MtkGbkSsid.isGbkSsid(str)) {
+            return com.mediatek.server.wifi.MtkGbkSsid.stringToByteArrayList(str);
+        }
+
         ArrayList<Byte> byteArrayList = new ArrayList<Byte>();
         for (byte b : str.getBytes(StandardCharsets.UTF_8)) {
             byteArrayList.add(new Byte(b));

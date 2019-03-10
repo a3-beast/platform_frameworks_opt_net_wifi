@@ -109,6 +109,8 @@ import com.android.server.wifi.hotspot2.PasspointProvider;
 import com.android.server.wifi.util.WifiHandler;
 import com.android.server.wifi.util.WifiPermissionsUtil;
 
+import com.mediatek.server.wifi.MtkEapSimUtility;
+
 import java.io.BufferedReader;
 import java.io.FileDescriptor;
 import java.io.FileNotFoundException;
@@ -130,13 +132,17 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
+/// M: Hotspot manager implementation @{
+import com.mediatek.server.wifi.MtkWifiServiceImpl;
+/// @}
+
 /**
  * WifiService handles remote WiFi operation requests by implementing
  * the IWifiManager interface.
  *
  * @hide
  */
-public class WifiServiceImpl extends IWifiManager.Stub {
+public class WifiServiceImpl extends MtkWifiServiceImpl {
     private static final String TAG = "WifiService";
     private static final boolean DBG = true;
     private static final boolean VDBG = false;
@@ -423,6 +429,9 @@ public class WifiServiceImpl extends IWifiManager.Stub {
     private final WifiMulticastLockManager mWifiMulticastLockManager;
 
     public WifiServiceImpl(Context context, WifiInjector wifiInjector, AsyncChannel asyncChannel) {
+        /// M: Hotspot manager implementation
+        super(context, wifiInjector, asyncChannel);
+
         mContext = context;
         mWifiInjector = wifiInjector;
         mClock = wifiInjector.getClock();
@@ -448,6 +457,8 @@ public class WifiServiceImpl extends IWifiManager.Stub {
         mWifiController = mWifiInjector.getWifiController();
         mWifiBackupRestore = mWifiInjector.getWifiBackupRestore();
         mPermissionReviewRequired = Build.PERMISSIONS_REVIEW_REQUIRED
+                || com.mediatek.cta.CtaManagerFactory.getInstance().
+                        makeCtaManager().isCtaSupported()
                 || context.getResources().getBoolean(
                 com.android.internal.R.bool.config_permissionReviewRequired);
         mWifiPermissionsUtil = mWifiInjector.getWifiPermissionsUtil();
@@ -459,6 +470,7 @@ public class WifiServiceImpl extends IWifiManager.Stub {
         mIfaceIpModes = new ConcurrentHashMap<>();
         mLocalOnlyHotspotRequests = new HashMap<>();
         enableVerboseLoggingInternal(getVerboseLoggingLevel());
+        MtkEapSimUtility.init();
     }
 
     /**
@@ -508,7 +520,8 @@ public class WifiServiceImpl extends IWifiManager.Stub {
                 new IntentFilter(Intent.ACTION_AIRPLANE_MODE_CHANGED));
 
         mContext.registerReceiver(
-                new BroadcastReceiver() {
+                new MtkEapSimUtility.MtkSimBroadcastReceiver(),
+                /*
                     @Override
                     public void onReceive(Context context, Intent intent) {
                         String state = intent.getStringExtra(IccCardConstants.INTENT_KEY_ICC_STATE);
@@ -522,7 +535,7 @@ public class WifiServiceImpl extends IWifiManager.Stub {
                             mWifiStateMachine.resetSimAuthNetworks(true);
                         }
                     }
-                },
+                }*/
                 new IntentFilter(TelephonyIntents.ACTION_SIM_STATE_CHANGED));
 
         mContext.registerReceiver(
@@ -818,7 +831,9 @@ public class WifiServiceImpl extends IWifiManager.Stub {
         }
 
 
-        if (mPermissionReviewRequired) {
+        if (mPermissionReviewRequired
+                && !com.mediatek.cta.CtaManagerFactory.getInstance().makeCtaManager().isSystemApp(
+                    mContext, packageName)) {
             final int wiFiEnabledState = getWifiEnabledState();
             if (enable) {
                 if (wiFiEnabledState == WifiManager.WIFI_STATE_DISABLING
@@ -2389,6 +2404,12 @@ public class WifiServiceImpl extends IWifiManager.Stub {
         mFacade.setIntegerSetting(
                 mContext, Settings.Global.WIFI_VERBOSE_LOGGING_ENABLED, verbose);
         enableVerboseLoggingInternal(verbose);
+
+        /// M: Adjust log much property based on the status of verbose logging
+        if (mWifiInjector.getPropertyService().get("ro.mtklog_internal", "").equals("1")) {
+            mWifiInjector.getPropertyService().set(
+                    "persist.logmuch.detect", (verbose > 0 ? "false" : "true"));
+        }
     }
 
     void enableVerboseLoggingInternal(int verbose) {
@@ -2398,6 +2419,7 @@ public class WifiServiceImpl extends IWifiManager.Stub {
         mWifiInjector.getWifiLastResortWatchdog().enableVerboseLogging(verbose);
         mWifiInjector.getWifiBackupRestore().enableVerboseLogging(verbose);
         LogcatLog.enableVerboseLogging(verbose);
+        MtkEapSimUtility.enableVerboseLogging(verbose);
     }
 
     @Override

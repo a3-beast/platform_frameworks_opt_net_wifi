@@ -237,6 +237,8 @@ public class WificondControl {
             mScanEventHandler = null;
             mApInterface = null;
 
+            com.mediatek.server.wifi.MtkGbkSsid.clear();
+
             return true;
         } catch (RemoteException e) {
             Log.e(TAG, "Failed to tear down interfaces due to remote exception");
@@ -357,6 +359,7 @@ public class WificondControl {
             }
             for (NativeScanResult result : nativeResults) {
                 WifiSsid wifiSsid = WifiSsid.createFromByteArray(result.ssid);
+                com.mediatek.server.wifi.MtkGbkSsid.checkAndSetGbk(wifiSsid);
                 String bssid;
                 try {
                     bssid = NativeUtil.macAddressFromByteArray(result.bssid);
@@ -374,6 +377,9 @@ public class WificondControl {
                         new InformationElementUtil.Capabilities();
                 capabilities.from(ies, result.capability);
                 String flags = capabilities.generateCapabilitiesString();
+                /// M:[WAPI] Check if we need to added WAPI security flag into flags
+                flags = com.mediatek.server.wifi.MtkWapi.generateCapabilitiesString(ies,
+                        result.capability, flags);
                 NetworkDetail networkDetail;
                 try {
                     networkDetail = new NetworkDetail(bssid, ies, null, result.frequency);

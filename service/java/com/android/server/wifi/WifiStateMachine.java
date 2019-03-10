@@ -129,6 +129,11 @@ import com.android.server.wifi.util.TelephonyUtil.SimAuthRequestData;
 import com.android.server.wifi.util.TelephonyUtil.SimAuthResponseData;
 import com.android.server.wifi.util.WifiPermissionsUtil;
 
+/// M:[WFC] Override L2ConnectedState to defer wifi disable process @{
+import com.mediatek.server.wifi.MtkL2ConnectedState;
+/// @}
+import com.mediatek.server.wifi.MtkOpFwkExtManager;
+
 import java.io.BufferedReader;
 import java.io.FileDescriptor;
 import java.io.FileNotFoundException;
@@ -148,6 +153,11 @@ import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+
+/// M: Hotspot manager implementation @{
+import com.mediatek.server.wifi.WifiApStateMachine;
+/// @}
+import com.mediatek.server.wifi.MtkEapSimUtility;
 
 /**
  * TODO:
@@ -826,7 +836,7 @@ public class WifiStateMachine extends StateMachine implements WifiNative.WifiRss
     /* Connecting to an access point */
     private State mConnectModeState = new ConnectModeState();
     /* Connected at 802.11 (L2) level */
-    private State mL2ConnectedState = new L2ConnectedState();
+    private State mL2ConnectedState;
     /* fetching IP after connection to access point (assoc+auth complete) */
     private State mObtainingIpState = new ObtainingIpState();
     /* Connected with IP addr */
@@ -972,6 +982,10 @@ public class WifiStateMachine extends StateMachine implements WifiNative.WifiRss
         mCountryCode = countryCode;
 
         mWifiScoreReport = new WifiScoreReport(mContext, mWifiConfigManager, mClock);
+
+        /// M:[WFC] Override L2ConnectedState to defer wifi disable process @{
+        mL2ConnectedState = new MtkL2ConnectedState(this, context, new L2ConnectedState());
+        /// @}
 
         mUserWantsSuspendOpt.set(mFacade.getIntegerSetting(mContext,
                 Settings.Global.WIFI_SUSPEND_OPTIMIZATIONS_ENABLED, 1) == 1);
@@ -1242,6 +1256,12 @@ public class WifiStateMachine extends StateMachine implements WifiNative.WifiRss
         mWifiNative.enableVerboseLogging(verbose);
         mWifiConfigManager.enableVerboseLogging(verbose);
         mSupplicantStateTracker.enableVerboseLogging(verbose);
+        if (mWifiConnectivityManager != null) {
+            mWifiConnectivityManager.mDbg = (verbose > 0) ? true : false;
+        }
+        if (mWifiInjector.getHalDeviceManager() != null) {
+            mWifiInjector.getHalDeviceManager().enableVerboseLogging(verbose);
+        }
     }
 
     private static final String SYSTEM_PROPERTY_LOG_CONTROL_WIFIHAL = "log.tag.WifiHAL";
@@ -2298,6 +2318,8 @@ public class WifiStateMachine extends StateMachine implements WifiNative.WifiRss
 
     private void logStateAndMessage(Message message, State state) {
         messageHandlingStatus = 0;
+        //M: Ignore the message to prevent print too much
+        if (message.what == CMD_GET_CONFIGURED_NETWORKS) return;
         if (mVerboseLoggingEnabled) {
             logd(" " + state.getClass().getSimpleName() + " " + getLogRecString(message));
         }
@@ -3021,6 +3043,8 @@ public class WifiStateMachine extends StateMachine implements WifiNative.WifiRss
             updateCapabilities();
         }
 
+        MtkOpFwkExtManager.getACM().updateRSSI(newRssi, mWifiInfo.getIpAddress(), mLastNetworkId);
+
         if (newLinkSpeed != null) {
             mWifiInfo.setLinkSpeed(newLinkSpeed);
         }
@@ -3264,6 +3288,11 @@ public class WifiStateMachine extends StateMachine implements WifiNative.WifiRss
         // Network id is only valid when we start connecting
         if (SupplicantState.isConnecting(state)) {
             mWifiInfo.setNetworkId(lookupFrameworkNetworkId(stateChangeResult.networkId));
+            ///M: ALPS03556145 Bug fix for incorrect UI display in WPS case
+            if (mWifiInfo.getNetworkId() != mLastNetworkId) {
+                mWifiInfo.setNetworkId(mLastNetworkId);
+                logd("Update NetworkId of WifiInfo for WPS case,mLastNetworkId=" + mLastNetworkId);
+            }
         } else {
             mWifiInfo.setNetworkId(WifiConfiguration.INVALID_NETWORK_ID);
         }
@@ -4138,6 +4167,11 @@ public class WifiStateMachine extends StateMachine implements WifiNative.WifiRss
                     Log.wtf(TAG, "Error! empty message encountered");
                     break;
                 default:
+                    /// M: Hotspot manager implementation @{
+                    if (WifiApStateMachine.processDefaultStateMessage(message, mContext)) {
+                        break;
+                    }
+                    /// @}
                     loge("Error! unhandled message" + message);
                     break;
             }
@@ -4280,6 +4314,8 @@ public class WifiStateMachine extends StateMachine implements WifiNative.WifiRss
                     mWifiInfo.setMacAddress(mWifiNative.getMacAddress());
                     initializeWpsDetails();
                     sendSupplicantConnectionChangedBroadcast(true);
+                    ///M: ALPS03503585 Disable EAP-SIM AP if modem is not ready
+                    MtkEapSimUtility.disableSimConfigWhenSimNotLoaded();
                     transitionTo(mSupplicantStartedState);
                     break;
                 case WifiMonitor.SUP_DISCONNECTION_EVENT:
@@ -4471,8 +4507,10 @@ public class WifiStateMachine extends StateMachine implements WifiNative.WifiRss
                     replyToMessage(message, message.what, stats);
                     break;
                 case CMD_RESET_SIM_NETWORKS:
-                    log("resetting EAP-SIM/AKA/AKA' networks since SIM was changed");
-                    mWifiConfigManager.resetSimNetworks(message.arg1 == 1);
+                    if (mVerboseLoggingEnabled) {
+                        log("resetting EAP-SIM/AKA/AKA' networks since SIM was changed");
+                    }
+                    MtkEapSimUtility.resetSimNetworks(message.arg1 == 1, message.arg2);
                     break;
                 case CMD_BLUETOOTH_ADAPTER_STATE_CHANGE:
                     mBluetoothConnectionActive = (message.arg1 !=
@@ -4576,13 +4614,20 @@ public class WifiStateMachine extends StateMachine implements WifiNative.WifiRss
     class SupplicantStoppingState extends State {
         @Override
         public void enter() {
+            Log.d(TAG, "enter SupplicantStoppingState");
+
             /* Send any reset commands to supplicant before shutting it down */
             handleNetworkDisconnect();
 
             String suppState = System.getProperty("init.svc.wpa_supplicant");
             if (suppState == null) suppState = "unknown";
 
-            setWifiState(WIFI_STATE_DISABLING);
+            /// M:[WFC] discard wifi disabling broadcast to prevent duplicate broadcast
+            if (mWifiState.get() != WIFI_STATE_DISABLING) {
+                setWifiState(WIFI_STATE_DISABLING);
+            }
+            /// @}
+
             mSupplicantStateTracker.sendMessage(CMD_RESET_SUPPLICANT_STATE);
             logd("SupplicantStoppingState: disableSupplicant "
                     + " init.svc.wpa_supplicant=" + suppState);
@@ -4746,6 +4791,9 @@ public class WifiStateMachine extends StateMachine implements WifiNative.WifiRss
             case WifiMonitor.SUP_REQUEST_IDENTITY:
                 s = "SUP_REQUEST_IDENTITY";
                 break;
+            case WifiMonitor.SUP_REQUEST_SIM_AUTH:
+                s = "SUP_REQUEST_SIM_AUTH";
+                break;
             case WifiMonitor.NETWORK_CONNECTION_EVENT:
                 s = "NETWORK_CONNECTION_EVENT";
                 break;
@@ -4810,6 +4858,11 @@ public class WifiStateMachine extends StateMachine implements WifiNative.WifiRss
                 s = "RSSI_PKTCNT_FETCH";
                 break;
             default:
+                /// M: Hotspot manager implementation @{
+                if (WifiApStateMachine.smToString(what) != null) {
+                    break;
+                }
+                /// @}
                 s = "what:" + Integer.toString(what);
                 break;
         }
@@ -4923,15 +4976,19 @@ public class WifiStateMachine extends StateMachine implements WifiNative.WifiRss
         public boolean processMessage(Message message) {
             WifiConfiguration config;
             int netId;
-            boolean ok;
+            boolean ok = false;
             boolean didDisconnect;
             String bssid;
             String ssid;
-            NetworkUpdateResult result;
+            NetworkUpdateResult result = null;
             Set<Integer> removedNetworkIds;
             int reasonCode;
             boolean timedOut;
             logStateAndMessage(message, this);
+
+            if (MtkOpFwkExtManager.getACM().preProcessMessage(this, message)) {
+                return HANDLED;
+            }
 
             switch (message.what) {
                 case WifiMonitor.ASSOCIATION_REJECTION_EVENT:
@@ -5112,9 +5169,12 @@ public class WifiStateMachine extends StateMachine implements WifiNative.WifiRss
                             && targetWificonfiguration.networkId == netId
                             && TelephonyUtil.isSimConfig(targetWificonfiguration)) {
                         String identity =
-                                TelephonyUtil.getSimIdentity(getTelephonyManager(),
+                                MtkEapSimUtility.getSimIdentity(getTelephonyManager(),
                                         targetWificonfiguration);
                         if (identity != null) {
+                            ///M: If slotId is unspecified, set default sim from TelepohonyManager
+                            MtkEapSimUtility.setDefaultSimToUnspecifiedSimSlot();
+                            log("Send Eap identity: " + identity + " to supplicant");
                             mWifiNative.simIdentityResponse(supplicantNetworkId, identity);
                             identitySent = true;
                         } else {
@@ -5206,6 +5266,10 @@ public class WifiStateMachine extends StateMachine implements WifiNative.WifiRss
                             + " roam=" + Boolean.toString(mIsAutoRoaming));
                     if (config == null) {
                         loge("CMD_START_CONNECT and no config, bail out...");
+                        break;
+                    }
+                    ///M: ALPS03503585 Airplane mode off, modem is not ready yet
+                    if (MtkEapSimUtility.disableSimConfigIfSimNotLoaded(config)) {
                         break;
                     }
                     mTargetNetworkId = netId;
@@ -5498,6 +5562,8 @@ public class WifiStateMachine extends StateMachine implements WifiNative.WifiRss
                 default:
                     return NOT_HANDLED;
             }
+            MtkOpFwkExtManager.getACM()
+                              .postProcessMessage(this, message, ok, result);
             return HANDLED;
         }
     }
@@ -6006,6 +6072,11 @@ public class WifiStateMachine extends StateMachine implements WifiNative.WifiRss
                         WifiConfiguration config =
                                 mWifiConfigManager.getConfiguredNetwork(mLastNetworkId);
                         if (TelephonyUtil.isSimConfig(config)) {
+                            ///M: ALPS03503585 EAP-SIM for extending to dual sim
+                            int removedSimSlot = message.arg2;
+                            int configSimSlot = MtkEapSimUtility.getIntSimSlot(config);
+                            if (configSimSlot != removedSimSlot) return NOT_HANDLED;
+                            log("Disconnect since sim" + removedSimSlot + " is removed");
                             mWifiMetrics.logStaEvent(StaEvent.TYPE_FRAMEWORK_DISCONNECT,
                                     StaEvent.DISCONNECT_RESET_SIM_NETWORKS);
                             mWifiNative.disconnect();
@@ -7015,6 +7086,12 @@ public class WifiStateMachine extends StateMachine implements WifiNative.WifiRss
                     transitionTo(mInitialState);
                     break;
                 default:
+                    /// M: Hotspot manager implementation @{
+                    if (WifiApStateMachine.processSoftApStateMessage(
+                            message, mContext, mSoftApManager)) {
+                        break;
+                    }
+                    /// @}
                     return NOT_HANDLED;
             }
             return HANDLED;
@@ -7081,6 +7158,11 @@ public class WifiStateMachine extends StateMachine implements WifiNative.WifiRss
         if (targetWificonfiguration == null
                 || targetWificonfiguration.networkId
                 == lookupFrameworkNetworkId(requestData.networkId)) {
+            if (targetWificonfiguration == null) {
+                targetWificonfiguration =
+                    mWifiConfigManager.getConfiguredNetwork(requestData.networkId);
+                logd("Assign targetWificonfiguration in roaming case since it will be null");
+            }
             logd("id matches targetWifiConfiguration");
         } else {
             logd("id does not match targetWifiConfiguration");
@@ -7102,6 +7184,11 @@ public class WifiStateMachine extends StateMachine implements WifiNative.WifiRss
         if (targetWificonfiguration == null
                 || targetWificonfiguration.networkId
                 == lookupFrameworkNetworkId(requestData.networkId)) {
+            if (targetWificonfiguration == null) {
+                targetWificonfiguration =
+                    mWifiConfigManager.getConfiguredNetwork(requestData.networkId);
+                logd("Assign targetWificonfiguration in roaming case since it will be null");
+            }
             logd("id matches targetWifiConfiguration");
         } else {
             logd("id does not match targetWifiConfiguration");
@@ -7338,6 +7425,7 @@ public class WifiStateMachine extends StateMachine implements WifiNative.WifiRss
      */
     public boolean syncInitialize(AsyncChannel channel) {
         Message resultMsg = channel.sendMessageSynchronously(CMD_INITIALIZE);
+        MtkOpFwkExtManager.initialize(mContext);
         boolean result = (resultMsg.arg1 != FAILURE);
         resultMsg.recycle();
         return result;

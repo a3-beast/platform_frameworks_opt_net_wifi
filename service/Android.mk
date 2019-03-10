@@ -60,11 +60,16 @@ LOCAL_JAVA_LIBRARIES := \
 	bouncycastle \
 	conscrypt \
 	jsr305 \
-	services
+	services \
+	mediatek-framework \
+	mediatek-common
+
 LOCAL_STATIC_JAVA_LIBRARIES := \
 	android.hardware.wifi-V1.0-java \
 	android.hardware.wifi-V1.1-java \
-	android.hardware.wifi.supplicant-V1.0-java
+	android.hardware.wifi.supplicant-V1.0-java \
+	vendor.mediatek.hardware.wifi.hostapd-V1.0-java \
+	vendor.mediatek.hardware.wifi.supplicant-V1.1-java-static
 LOCAL_REQUIRED_MODULES := services
 LOCAL_MODULE_TAGS :=
 LOCAL_MODULE := wifi-service

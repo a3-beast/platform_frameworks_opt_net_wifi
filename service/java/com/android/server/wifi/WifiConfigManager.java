@@ -122,7 +122,8 @@ public class WifiConfigManager {
             1,  //  threshold for DISABLED_NO_INTERNET
             1,  //  threshold for DISABLED_BY_WIFI_MANAGER
             1,  //  threshold for DISABLED_BY_USER_SWITCH
-            1   //  threshold for DISABLED_BY_WRONG_PASSWORD
+            1,  //  threshold for DISABLED_BY_WRONG_PASSWORD
+            1   //  threshold for DISABLED_AUTHENTICATION_SIM_CARD_ABSENT
     };
     /**
      * Network Selection disable timeout for each kind of error. After the timeout milliseconds,
@@ -144,7 +145,8 @@ public class WifiConfigManager {
             Integer.MAX_VALUE,  // threshold for DISABLED_NO_INTERNET
             Integer.MAX_VALUE,  // threshold for DISABLED_BY_WIFI_MANAGER
             Integer.MAX_VALUE,  // threshold for DISABLED_BY_USER_SWITCH
-            Integer.MAX_VALUE   // threshold for DISABLED_BY_WRONG_PASSWORD
+            Integer.MAX_VALUE,  // threshold for DISABLED_BY_WRONG_PASSWORD
+            Integer.MAX_VALUE   // threshold for DISABLED_AUTHENTICATION_SIM_CARD_ABSENT
     };
     /**
      * Interface for other modules to listen to the saved network updated
@@ -779,6 +781,9 @@ public class WifiConfigManager {
                 internalConfig.wepTxKeyIndex = externalConfig.wepTxKeyIndex;
             }
         }
+        if (externalConfig.simSlot != null) {
+            internalConfig.simSlot = externalConfig.simSlot;
+        }
         if (externalConfig.FQDN != null) {
             internalConfig.FQDN = externalConfig.FQDN;
         }
@@ -844,6 +849,14 @@ public class WifiConfigManager {
         // Copy over any metered information.
         internalConfig.meteredHint = externalConfig.meteredHint;
         internalConfig.meteredOverride = externalConfig.meteredOverride;
+
+        // Though priority is marked deprecated by Google, OP01 still need this.
+        internalConfig.priority = externalConfig.priority;
+
+        /// M:[WAPI] The flag indicates whether user select any certificates
+        if (externalConfig.mAliases != null) {
+            internalConfig.mAliases = externalConfig.mAliases;
+        }
     }
 
     /**
@@ -908,6 +921,7 @@ public class WifiConfigManager {
         newInternalConfig.ephemeral = externalConfig.ephemeral;
         newInternalConfig.useExternalScores = externalConfig.useExternalScores;
         newInternalConfig.shared = externalConfig.shared;
+        newInternalConfig.simSlot = externalConfig.simSlot;
 
         // Add debug information for network addition.
         newInternalConfig.creatorUid = newInternalConfig.lastUpdateUid = uid;
@@ -915,6 +929,8 @@ public class WifiConfigManager {
                 mContext.getPackageManager().getNameForUid(uid);
         newInternalConfig.creationTime = newInternalConfig.updateTime =
                 createDebugTimeStampString(mClock.getWallClockMillis());
+        /// M:[WAPI] Add for WAPI
+        newInternalConfig.mAliases = externalConfig.mAliases;
 
         return newInternalConfig;
     }
@@ -2843,6 +2859,7 @@ public class WifiConfigManager {
         if (mLocalLog != null) {
             mLocalLog.log(s);
         }
+        Log.d(TAG, s);
     }
 
     /**

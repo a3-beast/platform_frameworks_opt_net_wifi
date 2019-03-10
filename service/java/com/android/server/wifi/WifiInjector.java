@@ -54,6 +54,10 @@ import com.android.server.wifi.p2p.WifiP2pNative;
 import com.android.server.wifi.util.WifiPermissionsUtil;
 import com.android.server.wifi.util.WifiPermissionsWrapper;
 
+/// M: Hotspot manager implementation @{
+import com.mediatek.server.wifi.MtkSoftApManager;
+/// @}
+
 /**
  *  WiFi dependency injector. To be used for accessing various WiFi class instances and as a
  *  handle for mock injection.
@@ -376,10 +380,10 @@ public class WifiInjector {
                                            SoftApManager.Listener listener,
                                            IApInterface apInterface,
                                            WifiConfiguration config) {
-        return new SoftApManager(mWifiServiceHandlerThread.getLooper(),
-                                 mWifiNative, mCountryCode.getCountryCode(),
-                                 listener, apInterface, nmService,
-                                 mWifiApConfigStore, config, mWifiMetrics);
+        return new MtkSoftApManager(mContext, mWifiServiceHandlerThread.getLooper(),
+                                    mWifiNative, mCountryCode.getCountryCode(),
+                                    listener, apInterface, nmService,
+                                    mWifiApConfigStore, config, mWifiMetrics);
     }
 
     /**

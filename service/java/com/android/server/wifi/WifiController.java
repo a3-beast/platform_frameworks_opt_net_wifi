@@ -37,8 +37,11 @@ import android.os.Message;
 import android.os.SystemClock;
 import android.os.WorkSource;
 import android.provider.Settings;
+import android.util.Log;
 import android.util.Slog;
+import android.util.SparseArray;
 
+import com.android.internal.util.MessageUtils;
 import com.android.internal.util.Protocol;
 import com.android.internal.util.State;
 import com.android.internal.util.StateMachine;
@@ -52,7 +55,7 @@ import java.io.PrintWriter;
  */
 public class WifiController extends StateMachine {
     private static final String TAG = "WifiController";
-    private static final boolean DBG = false;
+    private static final boolean DBG = true;
     private Context mContext;
     private boolean mScreenOff;
     private boolean mDeviceIdle;
@@ -141,6 +144,11 @@ public class WifiController extends StateMachine {
     private FullHighPerfLockHeldState mFullHighPerfLockHeldState = new FullHighPerfLockHeldState();
     private NoLockHeldState mNoLockHeldState = new NoLockHeldState();
     private EcmState mEcmState = new EcmState();
+
+    // M: For message logging.
+    private static final Class[] sMessageClasses = { WifiController.class };
+    private static final SparseArray<String> sSmToString =
+            MessageUtils.findMessageNames(sMessageClasses);
 
     WifiController(Context context, WifiStateMachine wsm, WifiSettingsStore wss,
             WifiLockManager wifiLockManager, Looper looper, FrameworkFacade f) {
@@ -350,6 +358,7 @@ public class WifiController extends StateMachine {
     class DefaultState extends State {
         @Override
         public boolean processMessage(Message msg) {
+            Log.d(TAG, getName() + " " + sSmToString.get(msg.what) + msg.toString());
             switch (msg.what) {
                 case CMD_SCREEN_ON:
                     mAlarmManager.cancel(mIdleIntent);
@@ -434,6 +443,7 @@ public class WifiController extends StateMachine {
 
         @Override
         public void enter() {
+            Log.d(TAG, "Enter " + getName() + " mScreenOff=" + mScreenOff);
             mWifiStateMachine.setSupplicantRunning(false);
             // Supplicant can't restart right away, so not the time we switched off
             mDisabledTimestamp = SystemClock.elapsedRealtime();
@@ -443,6 +453,7 @@ public class WifiController extends StateMachine {
         }
         @Override
         public boolean processMessage(Message msg) {
+            Log.d(TAG, getName() + " " + sSmToString.get(msg.what) + msg.toString());
             switch (msg.what) {
                 case CMD_WIFI_TOGGLED:
                 case CMD_AIRPLANE_TOGGLED:
@@ -523,10 +534,12 @@ public class WifiController extends StateMachine {
     class StaEnabledState extends State {
         @Override
         public void enter() {
+            Log.d(TAG, "Enter " + getName() + " mScreenOff=" + mScreenOff);
             mWifiStateMachine.setSupplicantRunning(true);
         }
         @Override
         public boolean processMessage(Message msg) {
+            Log.d(TAG, getName() + " " + sSmToString.get(msg.what) + msg.toString());
             switch (msg.what) {
                 case CMD_WIFI_TOGGLED:
                     if (! mSettingsStore.isWifiToggleEnabled()) {
@@ -584,6 +597,7 @@ public class WifiController extends StateMachine {
 
         @Override
         public void enter() {
+            Log.d(TAG, "Enter " + getName() + " mScreenOff=" + mScreenOff);
             // need to set the mode before starting supplicant because WSM will assume we are going
             // in to client mode
             mWifiStateMachine.setOperationalMode(WifiStateMachine.SCAN_ONLY_WITH_WIFI_OFF_MODE);
@@ -597,6 +611,7 @@ public class WifiController extends StateMachine {
 
         @Override
         public boolean processMessage(Message msg) {
+            Log.d(TAG, getName() + " " + sSmToString.get(msg.what) + msg.toString());
             switch (msg.what) {
                 case CMD_WIFI_TOGGLED:
                     if (mSettingsStore.isWifiToggleEnabled()) {
@@ -697,6 +712,7 @@ public class WifiController extends StateMachine {
 
         @Override
         public boolean processMessage(Message msg) {
+            Log.d(TAG, getName() + " " + sSmToString.get(msg.what) + msg.toString());
             switch (msg.what) {
                 case CMD_AIRPLANE_TOGGLED:
                     if (mSettingsStore.isAirplaneModeOn()) {
@@ -757,6 +773,7 @@ public class WifiController extends StateMachine {
         private int mEcmEntryCount;
         @Override
         public void enter() {
+            Log.d(TAG, "Enter " + getName() + " mScreenOff=" + mScreenOff);
             mWifiStateMachine.setSupplicantRunning(false);
             mWifiStateMachine.clearANQPCache();
             mEcmEntryCount = 1;
@@ -764,6 +781,7 @@ public class WifiController extends StateMachine {
 
         @Override
         public boolean processMessage(Message msg) {
+            Log.d(TAG, getName() + " " + sSmToString.get(msg.what) + msg.toString());
             if (msg.what == CMD_EMERGENCY_CALL_STATE_CHANGED) {
                 if (msg.arg1 == 1) {
                     // nothing to do - just says emergency call started
@@ -818,12 +836,14 @@ public class WifiController extends StateMachine {
     class DeviceActiveState extends State {
         @Override
         public void enter() {
+            Log.d(TAG, "Enter " + getName() + " mScreenOff=" + mScreenOff);
             mWifiStateMachine.setOperationalMode(WifiStateMachine.CONNECT_MODE);
             mWifiStateMachine.setHighPerfModeEnabled(false);
         }
 
         @Override
         public boolean processMessage(Message msg) {
+            Log.d(TAG, getName() + " " + sSmToString.get(msg.what) + msg.toString());
             if (msg.what == CMD_DEVICE_IDLE) {
                 checkLocksAndTransitionWhenDeviceIdle();
                 // We let default state handle the rest of work
@@ -849,6 +869,7 @@ public class WifiController extends StateMachine {
     class DeviceInactiveState extends State {
         @Override
         public boolean processMessage(Message msg) {
+            Log.d(TAG, getName() + " " + sSmToString.get(msg.what) + msg.toString());
             switch (msg.what) {
                 case CMD_LOCKS_CHANGED:
                     checkLocksAndTransitionWhenDeviceIdle();
@@ -868,6 +889,7 @@ public class WifiController extends StateMachine {
     class ScanOnlyLockHeldState extends State {
         @Override
         public void enter() {
+            Log.d(TAG, "Enter " + getName() + " mScreenOff=" + mScreenOff);
             mWifiStateMachine.setOperationalMode(WifiStateMachine.SCAN_ONLY_MODE);
         }
     }
@@ -876,6 +898,7 @@ public class WifiController extends StateMachine {
     class FullLockHeldState extends State {
         @Override
         public void enter() {
+            Log.d(TAG, "Enter " + getName() + " mScreenOff=" + mScreenOff);
             mWifiStateMachine.setOperationalMode(WifiStateMachine.CONNECT_MODE);
             mWifiStateMachine.setHighPerfModeEnabled(false);
         }
@@ -885,6 +908,7 @@ public class WifiController extends StateMachine {
     class FullHighPerfLockHeldState extends State {
         @Override
         public void enter() {
+            Log.d(TAG, "Enter " + getName() + " mScreenOff=" + mScreenOff);
             mWifiStateMachine.setOperationalMode(WifiStateMachine.CONNECT_MODE);
             mWifiStateMachine.setHighPerfModeEnabled(true);
         }
@@ -894,6 +918,7 @@ public class WifiController extends StateMachine {
     class NoLockHeldState extends State {
         @Override
         public void enter() {
+            Log.d(TAG, "Enter " + getName() + " mScreenOff=" + mScreenOff);
             mWifiStateMachine.setOperationalMode(WifiStateMachine.DISABLED_MODE);
         }
     }

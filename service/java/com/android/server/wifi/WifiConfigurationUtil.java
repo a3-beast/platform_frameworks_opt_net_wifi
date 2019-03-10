@@ -36,6 +36,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 
+import com.mediatek.server.wifi.MtkEapSimUtility;
 /**
  * WifiConfiguration utility for any {@link android.net.wifi.WifiConfiguration} related operations.
  * Currently contains:
@@ -130,6 +131,7 @@ public class WifiConfigurationUtil {
      */
     public static boolean isConfigForOpenNetwork(WifiConfiguration config) {
         return !(isConfigForWepNetwork(config) || isConfigForPskNetwork(config)
+                || com.mediatek.server.wifi.MtkWapi.isConfigForWapiNetwork(config)
                 || isConfigForEapNetwork(config));
     }
 
@@ -256,6 +258,15 @@ public class WifiConfigurationUtil {
         }
         if (hasEnterpriseConfigChanged(existingConfig.enterpriseConfig,
                 newConfig.enterpriseConfig)) {
+            return true;
+        }
+        /// M:[WAPI] Check if aliases changed
+        if (com.mediatek.server.wifi.MtkWapi.hasAliasesChanged(existingConfig,
+                newConfig)) {
+            return true;
+        }
+        if (MtkEapSimUtility.getIntSimSlot(existingConfig)
+                != MtkEapSimUtility.getIntSimSlot(newConfig)) {
             return true;
         }
         return false;

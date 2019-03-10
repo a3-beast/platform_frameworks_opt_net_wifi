@@ -74,6 +74,7 @@ public class ScanResultUtil {
      */
     public static boolean isScanResultForOpenNetwork(ScanResult scanResult) {
         return !(isScanResultForWepNetwork(scanResult) || isScanResultForPskNetwork(scanResult)
+                || com.mediatek.server.wifi.MtkWapi.isScanResultForWapiNetwork(scanResult)
                 || isScanResultForEapNetwork(scanResult));
     }
 
@@ -112,6 +113,9 @@ public class ScanResultUtil {
             config.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.NONE);
             config.allowedAuthAlgorithms.set(WifiConfiguration.AuthAlgorithm.OPEN);
             config.allowedAuthAlgorithms.set(WifiConfiguration.AuthAlgorithm.SHARED);
+        } else if (com.mediatek.server.wifi.MtkWapi.isScanResultForWapiNetwork(scanResult)) {
+            config.allowedKeyManagement.set(scanResult.capabilities.contains("PSK") ?
+                    WifiConfiguration.KeyMgmt.WAPI_PSK : WifiConfiguration.KeyMgmt.WAPI_CERT);
         } else {
             config.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.NONE);
         }

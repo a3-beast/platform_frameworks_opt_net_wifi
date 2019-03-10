@@ -48,6 +48,7 @@ import java.util.regex.Pattern;
 
 import javax.annotation.concurrent.ThreadSafe;
 
+import vendor.mediatek.hardware.wifi.supplicant.V1_1.IMtkSupplicantStaNetwork;
 
 /**
  * Wrapper class for ISupplicantStaNetwork HAL calls. Gets and sets supplicant sta network variables
@@ -371,6 +372,13 @@ public class SupplicantStaNetworkHal {
                 Log.e(TAG, "failed to set update identifier");
                 return false;
             }
+            /// M:[WAPI] Set user selected alias to supplicant if any
+            if (com.mediatek.server.wifi.MtkWapi.isWapiConfiguration(config)
+                    && config.allowedKeyManagement.get(WifiConfiguration.KeyMgmt.WAPI_CERT)
+                    && !com.mediatek.server.wifi.MtkWapi.setWapiCertAlias(this, config.mAliases)) {
+                Log.e(TAG, "failed to set alias: " + config.mAliases);
+                return false;
+            }
             // Finish here if no EAP config to set
             if (config.enterpriseConfig != null
                     && config.enterpriseConfig.getEapMethod() != WifiEnterpriseConfig.Eap.NONE) {
@@ -623,6 +631,13 @@ public class SupplicantStaNetworkHal {
                 case WifiConfiguration.KeyMgmt.FT_EAP:
                     mask |= ISupplicantStaNetwork.KeyMgmtMask.FT_EAP;
                     break;
+                /// M:[WAPI] Convert KeyMgmt for supplicant
+                case WifiConfiguration.KeyMgmt.WAPI_PSK:
+                    mask |= IMtkSupplicantStaNetwork.KeyMgmtMask.WAPI_PSK;
+                    break;
+                case WifiConfiguration.KeyMgmt.WAPI_CERT:
+                    mask |= IMtkSupplicantStaNetwork.KeyMgmtMask.WAPI_CERT;
+                    break;
                 case WifiConfiguration.KeyMgmt.WPA2_PSK: // This should never happen
                 default:
                     throw new IllegalArgumentException(
@@ -644,6 +659,10 @@ public class SupplicantStaNetworkHal {
                     break;
                 case WifiConfiguration.Protocol.OSEN:
                     mask |= ISupplicantStaNetwork.ProtoMask.OSEN;
+                    break;
+                /// M:[WAPI] Convert Protocol for supplicant
+                case WifiConfiguration.Protocol.WAPI:
+                    mask |= IMtkSupplicantStaNetwork.ProtoMask.WAPI;
                     break;
                 default:
                     throw new IllegalArgumentException(
@@ -805,6 +824,13 @@ public class SupplicantStaNetworkHal {
         mask = supplicantMaskValueToWifiConfigurationBitSet(
                 mask, ISupplicantStaNetwork.KeyMgmtMask.FT_EAP, bitset,
                 WifiConfiguration.KeyMgmt.FT_EAP);
+        /// M:[WAPI] Convert KeyMgmt for WifiConfiguration
+        mask = supplicantMaskValueToWifiConfigurationBitSet(
+                mask, IMtkSupplicantStaNetwork.KeyMgmtMask.WAPI_PSK, bitset,
+                WifiConfiguration.KeyMgmt.WAPI_PSK);
+        mask = supplicantMaskValueToWifiConfigurationBitSet(
+                mask, IMtkSupplicantStaNetwork.KeyMgmtMask.WAPI_CERT, bitset,
+                WifiConfiguration.KeyMgmt.WAPI_CERT);
         if (mask != 0) {
             throw new IllegalArgumentException(
                     "invalid key mgmt mask from supplicant: " + mask);
@@ -823,6 +849,10 @@ public class SupplicantStaNetworkHal {
         mask = supplicantMaskValueToWifiConfigurationBitSet(
                 mask, ISupplicantStaNetwork.ProtoMask.OSEN, bitset,
                 WifiConfiguration.Protocol.OSEN);
+        /// M:[WAPI] Convert Protocol for WifiConfiguration
+        mask = supplicantMaskValueToWifiConfigurationBitSet(
+                mask, IMtkSupplicantStaNetwork.ProtoMask.WAPI, bitset,
+                WifiConfiguration.Protocol.WAPI);
         if (mask != 0) {
             throw new IllegalArgumentException(
                     "invalid proto mask from supplicant: " + mask);
@@ -2416,6 +2446,10 @@ public class SupplicantStaNetworkHal {
             if (mISupplicantStaNetwork == null) {
                 Log.e(TAG, "Can't call " + methodStr + ", ISupplicantStaNetwork is null");
                 return false;
+            } else {
+                if (mVerboseLoggingEnabled) {
+                    Log.d(TAG, "Do ISupplicantStaNetwork." + methodStr);
+                }
             }
             return true;
         }

@@ -39,6 +39,11 @@ import java.util.ArrayList;
 import java.util.Random;
 import java.util.UUID;
 
+/* Vanzo:zhongyeqing on: Thu, 22 Mar 2018 18:03:40 +0800
+ * porting VANZO_INNER_CUSTOM_WIFI_SSID
+ */
+import com.android.featureoption.FeatureOption;
+// End of Vanzo: zhongyeqing
 /**
  * Provides API for reading/writing soft access point configuration.
  */
@@ -207,8 +212,13 @@ public class WifiApConfigStore {
      */
     private WifiConfiguration getDefaultApConfiguration() {
         WifiConfiguration config = new WifiConfiguration();
+/* Vanzo:zhongyeqing on: Wed, 27 Dec 2017 16:07:06 +0800
+ *  update wifi ssid
         config.SSID = mContext.getResources().getString(
                 R.string.wifi_tether_configure_ssid_default) + "_" + getRandomIntForDefaultSsid();
+ */
+        config.SSID = "" + FeatureOption.VANZO_FEATURE_CUSTOM_WIFI_SSID;
+// End of Vanzo: zhongyeqing
         config.allowedKeyManagement.set(KeyMgmt.WPA2_PSK);
         String randomUUID = UUID.randomUUID().toString();
         //first 12 chars from xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx

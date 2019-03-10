@@ -95,6 +95,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/* Vanzo:zhongyeqing on: Wed, 27 Dec 2017 15:36:53 +0800
+ * wifi direct name
+ */
+import com.android.featureoption.FeatureOption;
+// End of Vanzo: zhongyeqing
+
 /**
  * WifiP2pService includes a state machine to perform Wi-Fi p2p operations. Applications
  * communicate with this service to issue device discovery and connectivity requests
@@ -107,7 +113,7 @@ import java.util.Map;
  */
 public class WifiP2pServiceImpl extends IWifiP2pManager.Stub {
     private static final String TAG = "WifiP2pService";
-    private static final boolean DBG = false;
+    private static final boolean DBG = true;
     private static final String NETWORKTYPE = "WIFI_P2P";
 
     private Context mContext;
@@ -2965,6 +2971,13 @@ public class WifiP2pServiceImpl extends IWifiP2pManager.Stub {
                 // default that has low likelihood of collision with a peer
                 String id = Settings.Secure.getString(mContext.getContentResolver(),
                         Settings.Secure.ANDROID_ID);
+/* Vanzo:zhongyeqing on: Wed, 27 Dec 2017 15:34:05 +0800
+ * wifi direct name
+ */
+                if (!TextUtils.isEmpty(FeatureOption.VANZO_FEATURE_WIFI_DIRECT_NAME)) {
+                    return FeatureOption.VANZO_FEATURE_WIFI_DIRECT_NAME;
+                }
+// End of Vanzo: zhongyeqing
                 return "Android_" + id.substring(0, 4);
             }
             return deviceName;

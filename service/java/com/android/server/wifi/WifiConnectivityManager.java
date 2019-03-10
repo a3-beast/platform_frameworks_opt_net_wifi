@@ -51,6 +51,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import com.mediatek.server.wifi.MtkOpFwkExtManager;
+
 /**
  * This class manages all the connectivity related scanning activities.
  *
@@ -143,7 +145,7 @@ public class WifiConnectivityManager {
     private final LocalLog mLocalLog;
     private final LinkedList<Long> mConnectionAttemptTimeStamps;
 
-    private boolean mDbg = false;
+    boolean mDbg = false;
     private boolean mWifiEnabled = false;
     private boolean mWifiConnectivityManagerEnabled = true;
     private boolean mScreenOn = false;
@@ -194,6 +196,7 @@ public class WifiConnectivityManager {
     // be retrieved in bugreport.
     private void localLog(String log) {
         mLocalLog.log(log);
+        Log.d(TAG, log);
     }
 
     // A periodic/PNO scan will be rescheduled up to MAX_SCAN_RESTART_ALLOWED times
@@ -273,6 +276,8 @@ public class WifiConnectivityManager {
         } else {
             if (mWifiState == WIFI_STATE_DISCONNECTED) {
                 mOpenNetworkNotifier.handleScanResults(
+                        mNetworkSelector.getFilteredScanDetailsForOpenUnsavedNetworks());
+                MtkOpFwkExtManager.getACM().handleScanResults(
                         mNetworkSelector.getFilteredScanDetailsForOpenUnsavedNetworks());
             }
             return false;
@@ -957,6 +962,7 @@ public class WifiConnectivityManager {
 
     // Set up periodic scan timer
     private void schedulePeriodicScanTimer(int intervalMs) {
+        localLog("schedulePeriodicScanTimer, intervalMs: " + intervalMs);
         mAlarmManager.set(AlarmManager.ELAPSED_REALTIME_WAKEUP,
                             mClock.getElapsedSinceBootMillis() + intervalMs,
                             PERIODIC_SCAN_TIMER_TAG,
